@@ -5,9 +5,9 @@
 ## 실행
 
 ```bash
-npm install
-npm test
-npm run dev
+pnpm install
+pnpm test
+pnpm dev
 ```
 
 같은 컴퓨터에서는 http://localhost:3000 을 엽니다.
@@ -15,7 +15,7 @@ npm run dev
 휴대폰 카메라는 HTTPS에서만 동작합니다.
 
 ```bash
-npm run dev:phone
+pnpm dev:phone
 ```
 
 터미널에 나온 `https://` 주소로 접속합니다. 처음 한 번은 인증서를 신뢰해야 합니다.
@@ -46,7 +46,7 @@ npm run dev:phone
 5. 다시 촬영, 화면 회전, 앱 전환 후 복귀를 확인합니다.
 6. 촬영 완료까지 걸린 시간과 잘못 통과하거나 거절된 사례를 기록하고 기준값을 조정합니다.
 
-검증 명령: `npm test`, `npm run lint`, `npx tsc --noEmit`, `npm run build`.
+검증 명령: `pnpm test`, `pnpm lint`, `pnpm exec tsc --noEmit`, `pnpm build`.
 
 
 ## A53 USB 테스트 기록 (2026-10-20)
@@ -97,7 +97,7 @@ The `Deploy GitHub Pages` workflow tests and exports the app on pushes to `main`
 Build locally for the project URL:
 
 ```bash
-npm run build
+pnpm build
 ```
 
 The static site is hosted at `https://kyc.namda-card.com/`. The Pages workflow builds with an empty `NEXT_PUBLIC_BASE_PATH` because the custom domain serves the app from `/`. `public/CNAME` records the custom domain. Camera access requires HTTPS. Worker and OpenCV URLs are relative to the deployed project path. Images are processed locally; GitHub hosts only the application files.
