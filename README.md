@@ -97,10 +97,10 @@ The `Deploy GitHub Pages` workflow tests and exports the app on pushes to `main`
 Build locally for the project URL:
 
 ```bash
-NEXT_PUBLIC_BASE_PATH=/kyc-scanner npm run build
+npm run build
 ```
 
-The static site is expected at `https://jacob-lee-1999.github.io/kyc-scanner/`. Camera access requires HTTPS. Worker and OpenCV URLs are relative to the deployed project path. Images are processed locally; GitHub hosts only the application files.
+The static site is hosted at `https://kyc.namda-card.com/`. The Pages workflow builds with an empty `NEXT_PUBLIC_BASE_PATH` because the custom domain serves the app from `/`. `public/CNAME` records the custom domain. Camera access requires HTTPS. Worker and OpenCV URLs are relative to the deployed project path. Images are processed locally; GitHub hosts only the application files.
 
 The Pages static export was successfully built locally, including type checking, after removing unused server caching options. All 36 tests and lint passed.
 

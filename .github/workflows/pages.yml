@@ -28,7 +28,8 @@ jobs:
       - run: npm run lint
       - run: npm run build
         env:
-          NEXT_PUBLIC_BASE_PATH: ${{ steps.pages.outputs.base_path }}
+          # The custom domain serves the application at the origin root.
+          NEXT_PUBLIC_BASE_PATH: ""
       - uses: actions/upload-pages-artifact@v3
         with:
           path: out
