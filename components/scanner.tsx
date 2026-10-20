@@ -164,7 +164,7 @@ export default function Scanner() {
     const planRef: { current: Plan | null } = { current: null };
     const edgeCanvas = document.createElement("canvas");
     const detailCanvas = document.createElement("canvas");
-    const worker = new Worker("/detector.worker.js");
+    const worker = new Worker(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/detector.worker.js`);
 
 
     const measure = () => {

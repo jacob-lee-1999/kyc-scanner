@@ -7,7 +7,7 @@ self.Module = {
   },
 };
 
-importScripts("/detector-core.js", "/opencv.js");
+importScripts("./detector-core.js", "./opencv.js");
 
 self.onmessage = (event) => {
   const message = event.data;

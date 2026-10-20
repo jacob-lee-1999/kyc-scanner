@@ -89,3 +89,17 @@ npm run dev:phone
 모서리를 가이드 네 귀퉁이에 일치시키는 대신, 카드 중심·면적·볼록한 네 모서리·변의 비율로 촬영 가능 여부를 판단합니다. 적당한 회전이나 원근 때문에 사다리꼴로 보이는 카드도 검출된 네 모서리의 원근 변환으로 실제 신분증 비율의 직사각형으로 보정합니다. 기존 6% 배경 여백은 유지합니다. 잘린 모서리, 심한 기울기, 흐림과 반사는 여전히 촬영을 막을 수 있습니다.
 
 원근 보정에 실패하거나 시간이 초과되면 미보정 이미지를 성공 결과로 표시하지 않고 재시도를 안내합니다. 합성 사다리꼴의 중심선이 수직으로 보정되는 테스트와 기울어진 카드의 유효성 검사를 추가했습니다.
+
+## GitHub Pages deployment
+
+The `Deploy GitHub Pages` workflow tests and exports the app on pushes to `main`, then deploys `out/` using GitHub Pages Actions. Enable GitHub Actions as the Pages publishing source in repository settings. Private repositories require a GitHub plan that supports Pages.
+
+Build locally for the project URL:
+
+```bash
+NEXT_PUBLIC_BASE_PATH=/kyc-scanner npm run build
+```
+
+The static site is expected at `https://jacob-lee-1999.github.io/kyc-scanner/`. Camera access requires HTTPS. Worker and OpenCV URLs are relative to the deployed project path. Images are processed locally; GitHub hosts only the application files.
+
+The Pages static export was successfully built locally, including type checking, after removing unused server caching options. All 36 tests and lint passed.
