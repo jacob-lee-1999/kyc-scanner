@@ -44,7 +44,7 @@ test("motion above the limit does not count as ready", () => {
   assert.equal(gate(sample({ motion: null })), "ok");
 });
 
-test("five steady frames capture on the fifth", () => {
+test("two steady frames capture when the minimum hold time is met", () => {
   let state = { ...EMPTY_STABILITY };
   let lastReason = "";
   let captured = false;
@@ -61,7 +61,7 @@ test("five steady frames capture on the fifth", () => {
         aspect: 1.58,
       },
       inner,
-      i * 200,
+      i * LIMITS.stableMs,
     );
     state = result.state;
     lastReason = result.reason;
@@ -139,9 +139,9 @@ test("rapid frames and long gaps cannot satisfy the hold interval", () => {
 
 test("4K analysis cadence can finish while genuine pauses reset the hold", () => {
   let state = { ...EMPTY_STABILITY };
-  for (let i=0; i<5; i++) {
+  for (let i=0; i<3; i++) {
     const result = step(state, sample(), quad, i * 550);
-    assert.equal(result.capture, i === 4);
+    assert.equal(result.capture, i === 2);
     state = result.state;
   }
   const first = step(EMPTY_STABILITY, sample(), quad, 0);

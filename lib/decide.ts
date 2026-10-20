@@ -15,7 +15,7 @@ export const LIMITS = {
   lumaMax: 240,
   cornerTol: 0.1,
   motionMax: 0.035,
-  stableFrames: 5,
+  stableFrames: 2,
   stableMs: 700,
   maxGapMs: 800,
 };
