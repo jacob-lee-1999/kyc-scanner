@@ -1,0 +1,264 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --idle: #ffffff;
+  --warn: #f0b429;
+  --ready: #3dd68c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #000;
+  color: #fff;
+}
+
+body {
+  font-family: "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.scanner {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  color: var(--idle);
+  overflow: hidden;
+  touch-action: none;
+}
+
+.scanner[data-tone="warn"] {
+  color: var(--warn);
+}
+
+.scanner[data-tone="ready"] {
+  color: var(--ready);
+}
+
+.stage {
+  position: absolute;
+  inset: 0;
+}
+
+.stage video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+.guide {
+  position: absolute;
+  border-radius: 12px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.62);
+}
+
+.corner {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border: 3px solid currentColor;
+}
+
+.tl {
+  top: -2px;
+  left: -2px;
+  border-right: 0;
+  border-bottom: 0;
+  border-top-left-radius: 12px;
+}
+
+.tr {
+  top: -2px;
+  right: -2px;
+  border-left: 0;
+  border-bottom: 0;
+  border-top-right-radius: 12px;
+}
+
+.bl {
+  bottom: -2px;
+  left: -2px;
+  border-right: 0;
+  border-top: 0;
+  border-bottom-left-radius: 12px;
+}
+
+.br {
+  right: -2px;
+  bottom: -2px;
+  border-left: 0;
+  border-top: 0;
+  border-bottom-right-radius: 12px;
+}
+
+.topbar,
+.bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.topbar {
+  top: 0;
+  padding: calc(14px + env(safe-area-inset-top)) 20px 12px;
+}
+
+.topbar h1,
+.result h1,
+.error-view h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.bottom {
+  bottom: 0;
+  gap: 12px;
+  padding: 16px 20px calc(18px + env(safe-area-inset-bottom));
+}
+
+.status {
+  margin: 0;
+  max-width: 22rem;
+  padding: 12px 16px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: inherit;
+  text-align: center;
+  line-height: 1.45;
+  font-size: 22px;
+}
+
+.bars {
+  display: flex;
+  gap: 6px;
+}
+
+.bar {
+  width: 28px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.bar.on {
+  background: currentColor;
+}
+
+
+
+.result,
+.error-view {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: calc(24px + env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom));
+  background: #000;
+  text-align: center;
+}
+
+.stage[hidden],
+.result[hidden],
+.error-view[hidden] {
+  display: none;
+}
+
+.preview {
+  width: min(92vw, 640px);
+  height: auto;
+  border-radius: 12px;
+  background: #161616;
+}
+
+.result p,
+.error-view p {
+  max-width: 24rem;
+  margin: 0;
+  color: #c8c8c8;
+  line-height: 1.5;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  width: min(92vw, 640px);
+}
+
+button {
+  min-height: 56px;
+  font-size: 20px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 12px;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+
+.actions button {
+  flex: 1;
+}
+
+button.primary {
+  border-color: #fff;
+  background: #fff;
+  color: #111;
+}
+
+button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.flash {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: #fff;
+  pointer-events: none;
+  animation: flash 180ms ease-out forwards;
+}
+
+@keyframes flash {
+  from {
+    opacity: 0.85;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flash {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+.instructions {
+  font-size: 18px;
+  line-height: 1.5;
+  text-align: center;
+  color: white;
+}
