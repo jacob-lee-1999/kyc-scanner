@@ -7,7 +7,7 @@ self.Module = {
   },
 };
 
-importScripts("./detector-core.js", "./opencv.js");
+importScripts("./detector-core.js?v=card-region-2", "./opencv.js");
 
 self.onmessage = (event) => {
   const message = event.data;
@@ -19,7 +19,7 @@ self.onmessage = (event) => {
   try {
     if (message.type === "frame") {
       const started = performance.now();
-      const metrics = self.detectorCore.analyzeFrame(
+      const metrics = self.detectorCore.analyzeScanFrame(
         cv,
         {
           data: new Uint8Array(message.edge.buffer),
@@ -27,11 +27,10 @@ self.onmessage = (event) => {
           height: message.edge.height,
         },
         {
-          data: new Uint8Array(message.detail.buffer),
-          width: message.detail.width,
-          height: message.detail.height,
+          data: new Uint8Array(message.source.buffer),
+          width: message.source.width,
+          height: message.source.height,
         },
-        message.inner,
       );
       self.postMessage({ type: "metrics", frameId: message.frameId, ms: performance.now() - started, ...metrics });
       return;

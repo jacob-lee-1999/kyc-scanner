@@ -157,7 +157,7 @@
     for (let i = 0; i < contours.size(); i++) {
       const cnt = contours.get(i);
       const area = cv.contourArea(cnt);
-      if (area < frameArea * 0.3 || area > frameArea * 0.92) {
+      if (area < frameArea * 0.08 || area > frameArea * 0.92) {
         cnt.delete();
         continue;
       }
@@ -213,7 +213,7 @@
     return value;
   }
 
-  function analyzeFrame(cv, edge, detail, inner) {
+  function qualityMetrics(cv, edge, detail, inner) {
     const src = rgbaMat(cv, edge);
     const gray = new cv.Mat();
     const detailSrc = rgbaMat(cv, detail);
@@ -225,7 +225,6 @@
       const cardGlare = glareOn(cv, gray, inner);
       // Text sample stays at camera resolution so a small reflection is not averaged away.
       const textGlare = glareOn(cv, detailGray, { x: 0, y: 0, width: 1, height: 1 });
-      const found = findQuad(cv, gray);
       // Find detailed content in each horizontal band. A blank/privacy-covered
       // region must not dominate, but one sharp edge cannot approve the card.
       const rows = [];
@@ -254,8 +253,6 @@
         hotspot: cardGlare.hotspot || textGlare.hotspot,
         luma: cardGlare.luma,
         borderScore: border,
-        quad: found ? found.quad : null,
-        aspect: found ? found.aspect : null,
       };
     } finally {
       detailGray.delete();
@@ -263,6 +260,44 @@
       gray.delete();
       src.delete();
     }
+  }
+
+  function detectQuad(cv, image) {
+    const src = rgbaMat(cv, image);
+    const gray = new cv.Mat();
+    try {
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+      return findQuad(cv, gray);
+    } finally {
+      gray.delete();
+      src.delete();
+    }
+  }
+
+  function analyzeFrame(cv, edge, detail, inner) {
+    const found = detectQuad(cv, edge);
+    return { ...qualityMetrics(cv, edge, detail, inner),
+      quad: found ? found.quad : null, aspect: found ? found.aspect : null };
+  }
+
+  // Source and edge show the same search area at different resolutions.
+  // Measure quality on the detected card, never on the reference guide/background.
+  function analyzeScanFrame(cv, edge, source) {
+    const found = detectQuad(cv, edge);
+    if (!found) return { sharpness: 0, glareRatio: 0, hotspot: false,
+      luma: 0, borderScore: 0, quad: null, aspect: null };
+    const corners = found.quad.map(p => ({ x: p.x * source.width, y: p.y * source.height }));
+    const width = Math.max(32, Math.min(660, Math.floor(Math.max(dist(corners[0], corners[1]), dist(corners[3], corners[2])))));
+    const card = warpCard(cv, source, corners, width, Math.round(width / (85.6 / 53.98)));
+    const x = Math.round(card.width * 0.06), y = Math.round(card.height * 0.09);
+    const w = card.width - x * 2, h = card.height - y * 2;
+    const data = new Uint8Array(w * h * 4);
+    for (let row = 0; row < h; row++) {
+      const offset = ((row + y) * card.width + x) * 4;
+      data.set(card.data.subarray(offset, offset + w * 4), row * w * 4);
+    }
+    return { ...qualityMetrics(cv, card, {width:w,height:h,data}, {x:0,y:0,width:1,height:1}),
+      quad: found.quad, aspect: found.aspect };
   }
 
   function warpCard(cv, image, corners, outWidth, outHeight) {
@@ -310,5 +345,5 @@
     return { width, height, data: copy };
   }
 
-  return { analyzeFrame, warpCard };
+  return { analyzeFrame, analyzeScanFrame, warpCard };
 });

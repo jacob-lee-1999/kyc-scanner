@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { LIMITS } from "../lib/decide.ts";
 import { quadMatchesGuide } from "../lib/geometry.ts";
 
@@ -145,7 +147,7 @@ test("opencv accepts a sharp card and rejects blur, glare, and an empty frame", 
   assert.equal(sharp.hotspot, false);
   assert.ok(sharp.glareRatio <= LIMITS.glareRatioMax);
   assert.ok(sharp.quad);
-  assert.equal(quadMatchesGuide(sharp.quad, inner, LIMITS.cornerTol), true);
+  assert.equal(quadMatchesGuide(sharp.quad, inner), true);
 
   const slightBlur = analyzeFrame(cv, edge, blur(detail, 1), inner);
   assert.ok(slightBlur.sharpness < sharp.sharpness);
@@ -269,4 +271,79 @@ test("perspective correction straightens a trapezoid and its vertical center lin
     assert.ok(result.data[red]>180 && result.data[red+2]<60);
     assert.ok(result.data[blue]<60 && result.data[blue+2]>180);
   }
+});
+
+const analyzeScanFrame = (require('../public/detector-core.js') as {
+  analyzeScanFrame: (cv: Cv, edge: Image, source: Image) => ReturnType<typeof analyzeFrame>;
+}).analyzeScanFrame;
+
+function offsetCard() {
+  const source=image(1024,768,[40,40,40]);
+  rect(source,380,280,520,328,[205,205,200]);
+  for(let row=300;row<588;row+=16) rect(source,405,row,270,2,[70,70,70]);
+  return source;
+}
+function halfImage(source: Image) {
+  const result=image(source.width/2,source.height/2,[0,0,0]);
+  for(let y=0;y<result.height;y++) for(let x=0;x<result.width;x++) {
+    const i=(y*2*source.width+x*2)*4;
+    result.data.set(source.data.subarray(i,i+4),(y*result.width+x)*4);
+  }
+  return result;
+}
+
+test('production scan detects a smaller shifted card and measures its actual text', async () => {
+  const source=offsetCard();
+  const metrics=analyzeScanFrame(await cvReady,halfImage(source),source);
+  assert.ok(metrics.quad);
+  assert.ok(metrics.sharpness>=LIMITS.sharpMin, `sharpness ${metrics.sharpness}`);
+  assert.equal(quadMatchesGuide(metrics.quad,{x:0.2,y:0.2,width:0.6,height:0.6}),true);
+  assert.equal(metrics.hotspot,false);
+});
+
+test('bright background outside the detected card is excluded from glare analysis', async () => {
+  const source=offsetCard();
+  rect(source,100,100,65,65,[255,255,255]);
+  const metrics=analyzeScanFrame(await cvReady,halfImage(source),source);
+  assert.ok(metrics.quad);
+  assert.equal(metrics.hotspot,false);
+  assert.ok(metrics.glareRatio<=LIMITS.glareRatioMax);
+});
+
+test('sharp background cannot approve a blurred detected card', async () => {
+  const source=blur(offsetCard(),4);
+  for(let row=20;row<720;row+=9) rect(source,20,row,190,1,[255,255,255]);
+  const metrics=analyzeScanFrame(await cvReady,halfImage(source),source);
+  assert.ok(metrics.quad);
+  assert.ok(metrics.sharpness<LIMITS.sharpMin, `sharpness ${metrics.sharpness}`);
+});
+
+test('reflection on the shifted card still blocks the production scan', async () => {
+  const source=offsetCard();
+  rect(source,420,320,40,40,[255,255,255]);
+  const metrics=analyzeScanFrame(await cvReady,halfImage(source),source);
+  assert.ok(metrics.quad);
+  assert.equal(metrics.hotspot,true);
+});
+
+
+test('actual worker protocol analyzes the source frame and preserves its frame ID', async () => {
+  const cv=await cvReady;
+  const messages: Array<ReturnType<typeof analyzeFrame> & {type:string;frameId:number}> = [];
+  const scope: {cvApi:Cv;detectorCore:unknown;postMessage:(value:typeof messages[number])=>void;onmessage?:(event:{data:unknown})=>void} = {
+    cvApi:cv,detectorCore:require('../public/detector-core.js'),postMessage:value=>messages.push(value),
+  };
+  runInNewContext(readFileSync(new URL('../public/detector.worker.js',import.meta.url),'utf8'), {
+    self:scope,performance,importScripts:()=>undefined,
+  });
+  const source=offsetCard(), edge=halfImage(source);
+  scope.onmessage!({data:{type:'frame',frameId:42,
+    edge:{buffer:edge.data.buffer,width:edge.width,height:edge.height},
+    source:{buffer:source.data.buffer,width:source.width,height:source.height},
+  }});
+  assert.equal(messages.length,1);
+  assert.equal(messages[0].type,'metrics');
+  assert.equal(messages[0].frameId,42);
+  assert.ok(messages[0].quad);
+  assert.ok(messages[0].sharpness>=LIMITS.sharpMin);
 });

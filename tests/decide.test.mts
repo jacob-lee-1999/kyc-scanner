@@ -149,3 +149,8 @@ test("4K analysis cadence can finish while genuine pauses reset the hold", () =>
   assert.equal(paused.state.count, 1);
   assert.equal(paused.capture, false);
 });
+
+test('small native card resolution requires moving closer despite good metrics', () => {
+  assert.equal(gate(sample({cardWidth:599})), 'closer');
+  assert.equal(gate(sample({cardWidth:600})), 'ok');
+});

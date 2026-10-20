@@ -18,13 +18,13 @@ import {
 import {
   analysisSource,
   coverMap,
-  detailWindow,
-  detailSize,
   drawable,
+  clampRect,
   edgeSize,
   guideRect,
   GUIDE_PAD,
   relativeInner,
+  outputSize,
   stageRectToVideo,
   type Point,
   type Rect,
@@ -38,15 +38,14 @@ type Failure = CameraFailure | "engine";
 type Phase = "scan" | "result";
 type Plan = {
   snapshot: Rect;
-  guide: Rect;
   source: Rect;
   inner: Rect;
-  detail: Rect;
-  detailSize: { width: number; height: number };
+  qualitySize: { width: number; height: number };
   edge: { width: number; height: number };
 };
 const STATUS: Record<Reason, string> = {
-  align: "신분증의 네 모서리가 보이게 틀 가운데 놓아 주세요",
+  align: "신분증 전체가 보이게 화면 가운데 놓아 주세요",
+  closer: "휴대폰을 조금 가까이해 주세요",
   glare: "휴대폰을 옆으로 조금 기울여 주세요",
   dark: "너무 어둡습니다. 밝은 곳으로 옮겨 주세요",
   bright: "너무 밝아 글자가 날아갑니다. 각도를 바꿔 주세요",
@@ -94,22 +93,24 @@ function buildPlan(
     guideRect(view.w, view.h, widthFraction),
     coverMap(view.w, view.h, video.videoWidth, video.videoHeight),
   );
+  const visible = stageRectToVideo({x:0,y:0,width:view.w,height:view.h}, coverMap(view.w, view.h, video.videoWidth, video.videoHeight));
   const analyzed = analysisSource(guide, GUIDE_PAD, video.videoWidth, video.videoHeight);
-  const source = drawable(analyzed.source, video.videoWidth, video.videoHeight);
-  const detail = drawable(detailWindow(guide), video.videoWidth, video.videoHeight);
-  if (!source || !detail) return null;
+  const source = drawable(clampRect(analyzed.source, visible), video.videoWidth, video.videoHeight);
+  if (!source) return null;
   const inner = relativeInner(guide, source);
-  if (inner.width < 0.2 || inner.height < 0.2) return null;
-  const snapshot = drawable(analysisSource(guide, 0.3, video.videoWidth, video.videoHeight).source, video.videoWidth, video.videoHeight);
+  const snapshot = drawable(analysisSource(source, 0.12, video.videoWidth, video.videoHeight).source, video.videoWidth, video.videoHeight);
   if (!snapshot) return null;
   const local = (rect: Rect): Rect => ({ ...rect, x: rect.x - snapshot.x, y: rect.y - snapshot.y });
-  return { snapshot, guide: local(guide), source: local(source), inner, detail: local(detail), detailSize: detailSize(detail), edge: edgeSize(source) };
+  const qualityScale = Math.min(1, 1280 / source.width, 960 / source.height);
+  return { snapshot, source: local(source), inner, qualitySize: {
+    width: Math.round(source.width * qualityScale), height: Math.round(source.height * qualityScale),
+  }, edge: edgeSize(source) };
 }
 
 function toneFor(reason: Reason, ready: boolean): "idle" | "warn" | "ready" {
   if (!ready) return "idle";
   if (reason === "hold" || reason === "ok") return "ready";
-  if (reason === "glare" || reason === "dark" || reason === "bright" || reason === "blur") return "warn";
+  if (reason === "closer" || reason === "glare" || reason === "dark" || reason === "bright" || reason === "blur") return "warn";
   return "idle";
 }
 
@@ -132,6 +133,7 @@ export default function Scanner() {
   const [engineReady, setEngineReady] = useState(false);
   const [distanceHint, setDistanceHint] = useState(false);
   const [reason, setReason] = useState<Reason>("align");
+  const [detected, setDetected] = useState<Point[] | null>(null);
   const [stable, setStable] = useState(0);
   const [flash, setFlash] = useState(0);
   const [guideFraction] = useState(0.72);
@@ -163,8 +165,8 @@ export default function Scanner() {
     const snapshot = document.createElement("canvas");
     const planRef: { current: Plan | null } = { current: null };
     const edgeCanvas = document.createElement("canvas");
-    const detailCanvas = document.createElement("canvas");
-    const worker = new Worker(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/detector.worker.js`);
+    const sourceCanvas = document.createElement("canvas");
+    const worker = new Worker(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/detector.worker.js?v=card-region-2`);
 
 
     const measure = () => {
@@ -234,14 +236,14 @@ export default function Scanner() {
           if (!snapshotContext) { fail("engine"); return; }
           snapshotContext.drawImage(video, plan.snapshot.x, plan.snapshot.y, plan.snapshot.width, plan.snapshot.height, 0, 0, snapshot.width, snapshot.height);
           const edge = drawRegion(snapshot, edgeCanvas, plan.source, plan.edge.width, plan.edge.height);
-          const detail = drawRegion(
+          const sourcePixels = drawRegion(
             snapshot,
-            detailCanvas,
-            plan.detail,
-            plan.detailSize.width,
-            plan.detailSize.height,
+            sourceCanvas,
+            plan.source,
+            plan.qualitySize.width,
+            plan.qualitySize.height,
           );
-          if (edge && detail) {
+          if (edge && sourcePixels) {
             planRef.current = plan;
             pendingFrameId = ++frameId;
             sampledAt = now;
@@ -256,14 +258,14 @@ export default function Scanner() {
                 type: "frame",
                 frameId: pendingFrameId,
                 edge: { buffer: edge.buffer, width: plan.edge.width, height: plan.edge.height },
-                detail: {
-                  buffer: detail.buffer,
-                  width: plan.detailSize.width,
-                  height: plan.detailSize.height,
+                source: {
+                  buffer: sourcePixels.buffer,
+                  width: plan.qualitySize.width,
+                  height: plan.qualitySize.height,
                 },
                 inner: plan.inner,
               },
-              [edge.buffer, detail.buffer],
+              [edge.buffer, sourcePixels.buffer],
             );
           }
         }
@@ -342,9 +344,12 @@ export default function Scanner() {
       if (document.hidden || performance.now() - sampledAt > LIMITS.maxGapMs) {
         stability = { ...EMPTY_STABILITY };
         best = null;
+        setDetected(null);
         return;
       }
+      const nativeCorners = data.quad?.map(p => ({x:p.x*plan.source.width,y:p.y*plan.source.height}));
       const decision = evaluateFrame(stability, {
+        cardWidth: nativeCorners ? outputSize(nativeCorners).width : undefined,
         sharpness: data.sharpness,
         glareRatio: data.glareRatio ?? 1,
         hotspot: data.hotspot ?? true,
@@ -353,6 +358,11 @@ export default function Scanner() {
         quad: data.quad ?? null,
         aspect: data.aspect ?? null,
       }, plan.inner, sampledAt);
+      const map = coverMap(viewRef.current.w, viewRef.current.h, video.videoWidth, video.videoHeight);
+      setDetected(decision.quad?.map(p => ({
+        x: ((plan.snapshot.x + plan.source.x + p.x * plan.source.width) * map.scale + map.offsetX) / viewRef.current.w * 100,
+        y: ((plan.snapshot.y + plan.source.y + p.y * plan.source.height) * map.scale + map.offsetY) / viewRef.current.h * 100,
+      })) ?? null);
       if (decision.state.count === 1 || (decision.reason !== "hold" && !decision.capture)) best = null;
       stability = decision.state;
       if ((decision.reason === "hold" || decision.capture) && decision.quad) {
@@ -420,6 +430,7 @@ export default function Scanner() {
         stableRef.current = 0;
         blobRef.current = null;
         setReason("align");
+        setDetected(null);
         setStable(0);
         setPhase("scan");
         const track = stream?.getVideoTracks()[0];
@@ -477,6 +488,7 @@ export default function Scanner() {
     setCameraReady(false);
     setEngineReady(false);
     setReason("align");
+    setDetected(null);
     setStable(0);
     setDistanceHint(false);
     setSession((value) => value + 1);
@@ -535,9 +547,14 @@ export default function Scanner() {
             <span className="corner br" />
           </div>
         )}
+        {detected && (
+          <svg className="detected-card" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+            <polygon points={detected.map(p => `${p.x},${p.y}`).join(" ")} vectorEffect="non-scaling-stroke" />
+          </svg>
+        )}
         <div className="topbar">
           <h1>신분증 촬영</h1>
-          <p className="instructions">신분증을 책상 위에 놓아 주세요.<br />사진은 자동으로 찍힙니다.</p>
+          <p className="instructions">신분증을 대략 가운데 놓아 주세요.<br />틀에 정확히 맞추지 않아도 됩니다.</p>
         </div>
         <div className="bottom">
           <p className="status" role="status">

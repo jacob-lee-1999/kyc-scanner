@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { LIMITS } from "../lib/decide.ts";
 import {
   CARD_ASPECT,
   analysisSource,
@@ -11,6 +10,7 @@ import {
   guideWidthFraction,
   outputSize,
   quadMatchesGuide,
+  quadMotion,
   stageRectToVideo,
 } from "../lib/geometry.ts";
 
@@ -83,9 +83,9 @@ test("moderate rotation is accepted while clipped corners are rejected", () => {
       return { x: 0.5 + dx * cos - dy * sin, y: 0.5 + dx * sin + dy * cos };
     });
   };
-  assert.equal(quadMatchesGuide(corners, inner, LIMITS.cornerTol), true);
-  assert.equal(quadMatchesGuide(turn(10), inner, LIMITS.cornerTol), true);
-  assert.equal(quadMatchesGuide(turn(15), inner, LIMITS.cornerTol), true);
+  assert.equal(quadMatchesGuide(corners, inner), true);
+  assert.equal(quadMatchesGuide(turn(10), inner), true);
+  assert.equal(quadMatchesGuide(turn(15), inner), true);
 });
 
 test("output keeps the card aspect and does not upscale past 2400", () => {
@@ -119,8 +119,25 @@ test("analysis covers the entire inner card even with a 4K source", () => {
 test("a centered trapezoid passes without matching guide corners", () => {
   const inner={x:0.1,y:0.1,width:0.8,height:0.8};
   const trapezoid=[{x:0.25,y:0.18},{x:0.75,y:0.12},{x:0.88,y:0.88},{x:0.12,y:0.82}];
-  assert.equal(quadMatchesGuide(trapezoid,inner,0.1),true);
-  assert.equal(quadMatchesGuide([trapezoid[0],trapezoid[2],trapezoid[1],trapezoid[3]],inner,0.1),false);
-  assert.equal(quadMatchesGuide(trapezoid.map(p=>({x:p.x+0.2,y:p.y})),inner,0.1),false);
-  assert.equal(quadMatchesGuide(trapezoid.map(p=>({x:0.5+(p.x-0.5)*0.25,y:p.y})),inner,0.1),false);
+  assert.equal(quadMatchesGuide(trapezoid,inner),true);
+  assert.equal(quadMatchesGuide([trapezoid[0],trapezoid[2],trapezoid[1],trapezoid[3]],inner),false);
+  assert.equal(quadMatchesGuide(trapezoid.map(p=>({x:p.x+0.2,y:p.y})),inner),false);
+  assert.equal(quadMatchesGuide(trapezoid.map(p=>({x:0.5+(p.x-0.5)*0.25,y:p.y})),inner),false);
+});
+
+test('a smaller off-center card and a larger card can pass the reference guide', () => {
+  const inner={x:0.2,y:0.2,width:0.6,height:0.6};
+  const smaller=[{x:0.50,y:0.32},{x:0.86,y:0.32},{x:0.86,y:0.68},{x:0.50,y:0.68}];
+  assert.equal(quadMatchesGuide(smaller,inner),true);
+  const larger=[{x:0.14,y:0.14},{x:0.86,y:0.14},{x:0.86,y:0.86},{x:0.14,y:0.86}];
+  assert.equal(quadMatchesGuide(larger,inner),true);
+  assert.equal(quadMatchesGuide(smaller.map(p=>({x:0.5+(p.x-0.68)*0.5,y:0.5+(p.y-0.5)*0.5})),inner),false);
+});
+
+test('motion is measured relative to the card size rather than the search window', () => {
+  const big=[{x:0.2,y:0.2},{x:0.8,y:0.2},{x:0.8,y:0.8},{x:0.2,y:0.8}];
+  const small=big.map(p=>({x:0.5+(p.x-0.5)*0.5,y:0.5+(p.y-0.5)*0.5}));
+  const bigMotion=quadMotion(big,big.map(p=>({x:p.x+0.01,y:p.y})))!;
+  const smallMotion=quadMotion(small,small.map(p=>({x:p.x+0.005,y:p.y})))!;
+  assert.ok(Math.abs(bigMotion-smallMotion)<1e-6);
 });

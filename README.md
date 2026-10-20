@@ -103,3 +103,14 @@ NEXT_PUBLIC_BASE_PATH=/kyc-scanner npm run build
 The static site is expected at `https://jacob-lee-1999.github.io/kyc-scanner/`. Camera access requires HTTPS. Worker and OpenCV URLs are relative to the deployed project path. Images are processed locally; GitHub hosts only the application files.
 
 The Pages static export was successfully built locally, including type checking, after removing unused server caching options. All 36 tests and lint passed.
+
+
+## 가이드 정렬 부담 완화
+
+- 가이드는 대략적인 위치 안내입니다. 검색 영역을 가이드 바깥으로 넓히고 화면에 보이는 범위 안에서 카드를 찾습니다.
+- 카드 중심은 가이드 폭·높이의 38%까지 치우쳐도 허용하고, 카드 면적은 가이드 면적의 30~185%를 허용합니다. 네 모서리와 저장할 실제 배경 여백이 확보되어야 합니다.
+- 인식된 카드에는 별도 윤곽선을 표시합니다. 가이드 밖을 어둡게 가리던 효과를 제거했습니다.
+- 검출된 카드를 먼저 원근 보정한 뒤 그 카드의 밝기·반사·선명도를 검사합니다. 카드 밖의 밝은 배경이나 선명한 물체는 품질 점수에서 제외합니다.
+- 원본 카드 너비가 600px 미만이면 가까이 오도록 안내합니다. 움직임은 검색창 대신 카드 크기를 기준으로 계산합니다.
+- 연속 2프레임 및 최소 700ms, 선명도·반사 기준과 6% 저장 여백은 유지합니다.
+- 작거나 치우친 카드, 배경 반사 제외, 흐린 카드/카드 반사 거부, Worker 메시지 연결을 포함해 44개 테스트를 통과했습니다. 이번 위치 허용 변경의 실기기 성공 촬영은 별도 확인이 필요합니다.

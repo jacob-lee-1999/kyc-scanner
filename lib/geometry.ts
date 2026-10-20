@@ -1,5 +1,5 @@
 export const CARD_ASPECT = 85.6 / 53.98;
-export const GUIDE_PAD = 0.14;
+export const GUIDE_PAD = 0.4;
 export const EDGE_WIDTH = 480;
 export const DETAIL_MAX_WIDTH = 960;
 export const DETAIL_MAX_HEIGHT = 640;
@@ -136,12 +136,12 @@ export function detailSize(source: Rect) {
   return { width: Math.max(3, Math.round(source.width * scale)), height: Math.max(3, Math.round(source.height * scale)) };
 }
 
-export function quadMatchesGuide(quad: Point[], inner: Rect, tol: number): boolean {
+export function quadMatchesGuide(quad: Point[], inner: Rect): boolean {
   if (quad.length !== 4 || inner.width <= 0 || inner.height <= 0) return false;
   if (quad.some(p => !Number.isFinite(p.x) || !Number.isFinite(p.y) || p.x <= 0.01 || p.y <= 0.01 || p.x >= 0.99 || p.y >= 0.99)) return false;
   const points = quad.map(p => ({x:(p.x-inner.x)/inner.width,y:(p.y-inner.y)/inner.height}));
   const center = points.reduce((c,p)=>({x:c.x+p.x/4,y:c.y+p.y/4}),{x:0,y:0});
-  if (Math.abs(center.x-0.5)>tol*1.5 || Math.abs(center.y-0.5)>tol*1.5) return false;
+  if (Math.abs(center.x-0.5)>0.38 || Math.abs(center.y-0.5)>0.38) return false;
   let twiceArea = 0;
   const lengths: number[] = [];
   for(let i=0;i<4;i++) {
@@ -155,7 +155,7 @@ export function quadMatchesGuide(quad: Point[], inner: Rect, tol: number): boole
   }
   const area=twiceArea/2;
   const ratio=(a:number,b:number)=>Math.max(a,b)/Math.min(a,b);
-  return area>=0.55 && area<=1.35 && ratio(lengths[0],lengths[2])<=2.3 && ratio(lengths[1],lengths[3])<=2.3;
+  return area>=0.30 && area<=1.85 && ratio(lengths[0],lengths[2])<=2.3 && ratio(lengths[1],lengths[3])<=2.3;
 
 }
 
@@ -163,7 +163,8 @@ export function quadMotion(prev: Point[] | null, next: Point[] | null): number |
   if (!prev || !next || prev.length !== 4 || next.length !== 4) return null;
   let total = 0;
   for (let i = 0; i < 4; i++) total += Math.hypot(prev[i].x - next[i].x, prev[i].y - next[i].y);
-  return total / 4;
+  const size = prev.reduce((sum, p, i) => sum + Math.hypot(p.x - prev[(i+1)%4].x, p.y - prev[(i+1)%4].y), 0) / 4;
+  return size > 0 ? total / 4 / size : null;
 }
 
 export function normalizedQuadToPixels(quad: Point[], source: Rect): Point[] {

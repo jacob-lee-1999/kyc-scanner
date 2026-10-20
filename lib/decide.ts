@@ -13,16 +13,17 @@ export const LIMITS = {
   borderMin: 20,
   lumaMin: 50,
   lumaMax: 240,
-  cornerTol: 0.1,
-  motionMax: 0.035,
+  motionMax: 0.045,
+  cardWidthMin: 600,
   stableFrames: 2,
   stableMs: 700,
   maxGapMs: 800,
 };
 
-export type Reason = "align" | "glare" | "dark" | "bright" | "blur" | "move" | "hold" | "ok";
+export type Reason = "align" | "closer" | "glare" | "dark" | "bright" | "blur" | "move" | "hold" | "ok";
 
 export type FrameMetrics = {
+  cardWidth?: number;
   sharpness: number;
   glareRatio: number;
   hotspot: boolean;
@@ -33,6 +34,7 @@ export type FrameMetrics = {
 };
 
 export type Sample = {
+  cardWidth?: number;
   sharpness: number;
   glareRatio: number;
   hotspot: boolean;
@@ -49,6 +51,7 @@ export const EMPTY_STABILITY: Stability = { count: 0, quad: null };
 export function gate(sample: Sample): Exclude<Reason, "hold"> {
   const aligned = sample.quadMatched;
   if (!aligned) return "align";
+  if (sample.cardWidth != null && (!Number.isFinite(sample.cardWidth) || sample.cardWidth < LIMITS.cardWidthMin)) return "closer";
   if (
     sample.hotspot ||
     !Number.isFinite(sample.glareRatio) ||
@@ -78,9 +81,10 @@ export function step(state: Stability, sample: Sample, quad: Point[] | null, now
 
 export function evaluateFrame(state: Stability, metrics: FrameMetrics, inner: Rect, now = performance.now()) {
   const quadMatched =
-    metrics.quad != null && quadMatchesGuide(metrics.quad, inner, LIMITS.cornerTol);
+    metrics.quad != null && quadMatchesGuide(metrics.quad, inner);
   const quad = quadMatched ? metrics.quad : null;
   const sample: Sample = {
+    cardWidth: metrics.cardWidth,
     sharpness: metrics.sharpness,
     glareRatio: metrics.glareRatio,
     hotspot: metrics.hotspot,
