@@ -46,7 +46,15 @@ pnpm dev:phone
 5. 다시 촬영, 화면 회전, 앱 전환 후 복귀를 확인합니다.
 6. 촬영 완료까지 걸린 시간과 잘못 통과하거나 거절된 사례를 기록하고 기준값을 조정합니다.
 
-검증 명령: `pnpm test`, `pnpm lint`, `pnpm exec tsc --noEmit`, `pnpm build`.
+검증 명령: `pnpm test`, `pnpm lint`, `pnpm --filter web exec tsc --noEmit`, `pnpm build`.
+
+
+## 구조
+
+- `apps/web`: Next.js 앱
+- `packages/opencv`: 스캐너가 쓰는 함수만 넣은 OpenCV.js 4.13.0 빌드 (`dist/opencv.js`, `dist/opencv_js.wasm`). `apps/web` 의 `dev`, `build` 가 `public/` 으로 복사합니다.
+
+`detector-core.js` 에서 새 OpenCV 함수를 쓰려면 `packages/opencv/opencv.config.py` 에 추가하고 `pnpm --filter @kyc-scanner/opencv build` 로 다시 빌드합니다 (Docker 필요).
 
 
 ## A53 USB 테스트 기록 (2026-10-20)
@@ -100,7 +108,7 @@ Build locally for the project URL:
 pnpm build
 ```
 
-The static site is hosted at `https://kyc.namda-card.com/`. The Pages workflow builds with an empty `NEXT_PUBLIC_BASE_PATH` because the custom domain serves the app from `/`. `public/CNAME` records the custom domain. Camera access requires HTTPS. Worker and OpenCV URLs are relative to the deployed project path. Images are processed locally; GitHub hosts only the application files.
+The static site is hosted at `https://kyc.namda-card.com/`. The Pages workflow builds with an empty `NEXT_PUBLIC_BASE_PATH` because the custom domain serves the app from `/`. `apps/web/public/CNAME` records the custom domain. Camera access requires HTTPS. Worker and OpenCV URLs are relative to the deployed project path. Images are processed locally; GitHub hosts only the application files.
 
 The Pages static export was successfully built locally, including type checking, after removing unused server caching options. All 36 tests and lint passed.
 

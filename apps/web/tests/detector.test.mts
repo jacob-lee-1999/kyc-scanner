@@ -134,7 +134,7 @@ const cvReady: Promise<Cv> = new Promise((resolve, reject) => {
       }
     },
   };
-  require("../public/opencv.js");
+  require("@kyc-scanner/opencv");
 });
 
 test("opencv accepts a sharp card and rejects blur, glare, and an empty frame", async () => {

@@ -33,7 +33,7 @@ jobs:
           NEXT_PUBLIC_BASE_PATH: ""
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: out
+          path: apps/web/out
   deploy:
     needs: build
     runs-on: ubuntu-latest
