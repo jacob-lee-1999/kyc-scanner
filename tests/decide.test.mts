@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { EMPTY_STABILITY, evaluateFrame, gate, LIMITS, type Sample, step } from "../lib/decide.ts";
+import { EMPTY_STABILITY, evaluateFrame, gate, LIMITS, type Sample, step } from "../src/lib/decide.ts";
 
 const inner = { x: 0.1, y: 0.1, width: 0.8, height: 0.8 };
 const quad = [

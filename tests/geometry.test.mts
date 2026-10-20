@@ -12,7 +12,7 @@ import {
   quadMatchesGuide,
   quadMotion,
   stageRectToVideo,
-} from "../lib/geometry.ts";
+} from "../src/lib/geometry.ts";
 
 test("guide matches the closest distance the lens can focus", () => {
   const close = guideWidthFraction(0.11);

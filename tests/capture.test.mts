@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { paddedCapture, preferCandidate } from '../lib/capture.ts';
+import { paddedCapture, preferCandidate } from '../src/lib/capture.ts';
 
 const card = [{x:100,y:100},{x:900,y:100},{x:900,y:600},{x:100,y:600}];
 test('capture keeps six percent real background on all four sides', () => {

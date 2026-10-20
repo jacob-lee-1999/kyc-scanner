@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cameraFailure, canFocusClose, closestFocusDistance, mainLensScore, mainZoom, tuneTrack, refocus } from "../lib/camera.ts";
+import { cameraFailure, canFocusClose, closestFocusDistance, mainLensScore, mainZoom, tuneTrack, refocus } from "../src/lib/camera.ts";
 
 test("camera errors map to a screen the user can act on", () => {
   assert.equal(cameraFailure(new DOMException("no", "NotAllowedError")), "permission");

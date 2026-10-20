@@ -3,8 +3,8 @@ import { createRequire } from "node:module";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
-import { LIMITS } from "../lib/decide.ts";
-import { quadMatchesGuide } from "../lib/geometry.ts";
+import { LIMITS } from "../src/lib/decide.ts";
+import { quadMatchesGuide } from "../src/lib/geometry.ts";
 
 const require = createRequire(import.meta.url);
 const { analyzeFrame, warpCard } = require("../public/detector-core.js") as {
@@ -236,7 +236,7 @@ test("low contrast text passes while its defocused version fails", async () => {
 });
 
 test("padded perspective warp retains actual background around card corners", async () => {
-  const { paddedCapture } = await import('../lib/capture.ts');
+  const { paddedCapture } = await import('../src/lib/capture.ts');
   const source = image(240, 180, [20, 30, 40]);
   rect(source, 40, 40, 160, 100, [200, 200, 200]);
   const plan = paddedCapture([{x:40,y:40},{x:200,y:40},{x:200,y:140},{x:40,y:140}],240,180)!;
