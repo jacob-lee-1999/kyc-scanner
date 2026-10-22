@@ -20,7 +20,10 @@ export const LIMITS = {
   maxGapMs: 800,
 };
 
-export type Reason = "align" | "closer" | "glare" | "dark" | "bright" | "blur" | "move" | "hold" | "ok";
+// Found on the captured card by inspectDamage in detector-core.js.
+export type Damage = "corner" | "split" | "hole" | "covered";
+
+export type Reason = "align" | "closer" | "glare" | "dark" | "bright" | "blur" | "move" | "hold" | "ok" | Damage;
 
 export type FrameMetrics = {
   cardWidth?: number;
@@ -31,6 +34,8 @@ export type FrameMetrics = {
   borderScore: number;
   quad: Point[] | null;
   aspect: number | null;
+  // Recent frames, merged, leave no part of the card washed out.
+  glareCovered?: boolean;
 };
 
 export type Sample = {
@@ -42,20 +47,20 @@ export type Sample = {
   borderScore: number;
   quadMatched: boolean;
   motion: number | null;
+  glareCovered?: boolean;
 };
 
 export type Stability = { count: number; quad: Point[] | null; since?: number; last?: number };
 
 export const EMPTY_STABILITY: Stability = { count: 0, quad: null };
 
-export function gate(sample: Sample): Exclude<Reason, "hold"> {
+export function gate(sample: Sample): Exclude<Reason, "hold" | Damage> {
   const aligned = sample.quadMatched;
   if (!aligned) return "align";
   if (sample.cardWidth != null && (!Number.isFinite(sample.cardWidth) || sample.cardWidth < LIMITS.cardWidthMin)) return "closer";
   if (
-    sample.hotspot ||
-    !Number.isFinite(sample.glareRatio) ||
-    sample.glareRatio > LIMITS.glareRatioMax
+    !sample.glareCovered &&
+    (sample.hotspot || !Number.isFinite(sample.glareRatio) || sample.glareRatio > LIMITS.glareRatioMax)
   ) {
     return "glare";
   }
@@ -92,6 +97,7 @@ export function evaluateFrame(state: Stability, metrics: FrameMetrics, inner: Re
     borderScore: metrics.borderScore,
     quadMatched,
     motion: quadMotion(state.quad, quad),
+    glareCovered: metrics.glareCovered,
   };
   return { ...step(state, sample, quad, now), quad, sample };
 }

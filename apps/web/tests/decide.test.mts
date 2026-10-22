@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { EMPTY_STABILITY, evaluateFrame, gate, LIMITS, type Sample, step } from "../lib/decide.ts";
+import { EMPTY_STABILITY, evaluateFrame, gate, LIMITS, type Sample, step } from "../src/lib/decide.ts";
 
 const inner = { x: 0.1, y: 0.1, width: 0.8, height: 0.8 };
 const quad = [
@@ -30,6 +30,12 @@ test("alignment is reported before glare on an empty frame", () => {
 test("glare wins over blur once the card is in the frame", () => {
   assert.equal(gate(sample({ hotspot: true, sharpness: 10 })), "glare");
   assert.equal(gate(sample({ glareRatio: LIMITS.glareRatioMax + 0.01, sharpness: 10 })), "glare");
+});
+
+test("glare that other frames can fill in no longer blocks capture", () => {
+  assert.equal(gate(sample({ hotspot: true, glareRatio: 0.05, glareCovered: true })), "ok");
+  assert.equal(gate(sample({ hotspot: true, glareCovered: false })), "glare");
+  assert.equal(gate(sample({ hotspot: true, glareCovered: true, sharpness: 10 })), "blur");
 });
 
 test("dark, bright, and blur are separate", () => {

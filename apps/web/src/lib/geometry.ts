@@ -1,4 +1,6 @@
 export const CARD_ASPECT = 85.6 / 53.98;
+// ID-3 passport data page, 125×88mm.
+export const PASSPORT_ASPECT = 125 / 88;
 export const GUIDE_PAD = 0.4;
 export const EDGE_WIDTH = 480;
 export const DETAIL_MAX_WIDTH = 960;
@@ -186,9 +188,9 @@ export function innerCorners(inner: Rect, source: Rect): Point[] {
   ];
 }
 
-export function outputSize(corners: Point[]): { width: number; height: number } {
+export function outputSize(corners: Point[], aspect = CARD_ASPECT): { width: number; height: number } {
   const top = Math.hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y);
   const bottom = Math.hypot(corners[2].x - corners[3].x, corners[2].y - corners[3].y);
   const width = Math.round(Math.min(2400, Math.max(1, Math.max(top, bottom))));
-  return { width, height: Math.max(1, Math.round(width / CARD_ASPECT)) };
+  return { width, height: Math.max(1, Math.round(width / aspect)) };
 }

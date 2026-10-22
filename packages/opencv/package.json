@@ -1,0 +1,12 @@
+{
+  "name": "@kyc-scanner/opencv",
+  "version": "4.13.0",
+  "private": true,
+  "main": "dist/opencv.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "./build.sh"
+  }
+}

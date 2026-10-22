@@ -40,6 +40,7 @@ type ExtraCaps = MediaTrackCapabilities & {
   exposureMode?: string[];
   whiteBalanceMode?: string[];
   zoom?: { min: number; max: number };
+  exposureCompensation?: { min: number; max: number };
 };
 
 export function canFocusClose(caps: {
@@ -232,4 +233,20 @@ async function focusClose(track: MediaStreamTrack) {
 
 export async function refocus(track: MediaStreamTrack) {
   await focusClose(track);
+}
+
+// Glare on a laminated card clips to white and hides its edge and print; a lower
+// exposure keeps them. Cameras without exposure compensation (iPhone Safari) skip it.
+export const GLARE_EV = -1;
+
+export async function dimForGlare(track: MediaStreamTrack, dim: boolean) {
+  const range = capsOf(track)?.exposureCompensation;
+  if (!range) return false;
+  const ev = Math.min(range.max, Math.max(range.min, dim ? GLARE_EV : 0));
+  try {
+    await applyMode(track, { exposureCompensation: ev } as MediaTrackConstraintSet);
+    return true;
+  } catch {
+    return false;
+  }
 }

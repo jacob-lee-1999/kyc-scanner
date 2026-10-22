@@ -1,28 +1,12 @@
 {
   "name": "kyc-scanner",
-  "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "dev:phone": "next dev --hostname 0.0.0.0 --experimental-https",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint",
-    "test": "node --experimental-strip-types --test tests/*.mts"
+    "dev": "pnpm --filter web dev",
+    "dev:phone": "pnpm --filter web dev:phone",
+    "build": "pnpm --filter web build",
+    "lint": "pnpm --filter web lint",
+    "test": "pnpm --filter web test"
   },
-  "dependencies": {
-    "next": "16.4.2",
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
-  },
-  "devDependencies": {
-    "@tailwindcss/turbopack": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.4.2",
-    "tailwindcss": "^4",
-    "typescript": "^5"
-  }
+  "packageManager": "pnpm@12.9.1"
 }

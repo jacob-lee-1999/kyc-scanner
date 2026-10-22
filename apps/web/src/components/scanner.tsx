@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   cameraFailure,
+  dimForGlare,
   openCamera,
   refocus,
   tuneTrack,
@@ -12,6 +13,7 @@ import {
   EMPTY_STABILITY,
   evaluateFrame,
   LIMITS,
+  type Damage,
   type Reason,
   type Stability,
 } from "@/lib/decide";
@@ -30,11 +32,24 @@ import {
   type Rect,
 } from "@/lib/geometry";
 
-import { paddedCapture, preferCandidate } from "@/lib/capture";
+import { CANDIDATE_MAX_AGE_MS, CAPTURE_MARGIN, coveringFrames, documentKind, glareCovered, KIND_ASPECT, KIND_FRAMES, paddedCapture, preferCandidate, type DocumentKind } from "@/lib/capture";
 
 const FRAME_GAP_MS = 120;
+// A rejected card must be out of view this long before auto capture resumes.
+const DAMAGE_CLEAR_MS = 1000;
+// Glare must last this long before exposure is lowered, so a passing reflection does not.
+const GLARE_DIM_MS = 600;
+// Gallery photos are scaled down to this long side; enough for the saved card.
+const PHOTO_MAX = 2400;
+// Room around the photo for the capture margin, filled by stretching its edge pixels.
+const PHOTO_PAD = 0.08;
+const PHOTO_MISSED = "사진에서 신분증을 찾지 못했습니다. 신분증 전체와 주변이 보이는 사진을 골라 주세요";
 
 type Failure = CameraFailure | "engine";
+type Crop = NonNullable<ReturnType<typeof paddedCapture>>;
+// Recent frames of the card, kept to fill in its glare at capture (fuseGlare).
+type Recent = { at: number; frameId: number; cells: number[]; crop: Crop; canvas: HTMLCanvasElement };
+const RECENT_FRAMES = 4;
 type Phase = "scan" | "result";
 type Plan = {
   snapshot: Rect;
@@ -53,6 +68,10 @@ const STATUS: Record<Reason, string> = {
   move: "흔들렸습니다. 신분증을 고정해 주세요",
   hold: "선명합니다. 그대로 있어 주세요",
   ok: "촬영합니다",
+  corner: "모서리가 깨진 신분증은 사용할 수 없습니다",
+  split: "쪼개졌다 붙인 신분증은 사용할 수 없습니다",
+  hole: "구멍 난 신분증은 사용할 수 없습니다",
+  covered: "손가락을 치워 주세요",
 };
 
 const FAILURE_TEXT: Record<Failure, string> = {
@@ -111,6 +130,7 @@ function toneFor(reason: Reason, ready: boolean): "idle" | "warn" | "ready" {
   if (!ready) return "idle";
   if (reason === "hold" || reason === "ok") return "ready";
   if (reason === "closer" || reason === "glare" || reason === "dark" || reason === "bright" || reason === "blur") return "warn";
+  if (reason === "corner" || reason === "split" || reason === "hole" || reason === "covered") return "warn";
   return "idle";
 }
 
@@ -119,7 +139,8 @@ export default function Scanner() {
   const stageRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLCanvasElement>(null);
   const blobRef = useRef<Blob | null>(null);
-  const controlsRef = useRef<{ retake: () => void } | null>(null);
+  const controlsRef = useRef<{ retake: () => void; pickPhoto: () => boolean; loadPhoto: (file: File) => void; resume: () => void } | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const viewRef = useRef({ w: 0, h: 0 });
   const reasonRef = useRef<Reason>("align");
   const stableRef = useRef(0);
@@ -136,6 +157,7 @@ export default function Scanner() {
   const [detected, setDetected] = useState<Point[] | null>(null);
   const [stable, setStable] = useState(0);
   const [flash, setFlash] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
   const [guideFraction] = useState(0.72);
 
   useEffect(() => {
@@ -145,9 +167,12 @@ export default function Scanner() {
 
     let cancelled = false;
     let stream: MediaStream | null = null;
-    let mode: "scan" | "capturing" | "result" | "error" = "scan";
+    let mode: "scan" | "photo" | "capturing" | "result" | "error" = "scan";
+    let fromPhoto = false;
     let busy = false;
     let engineReadyNow = false;
+    // A photo picked before the engine is up waits here for it.
+    let queuedPhoto: (() => void) | null = null;
     let cameraReadyNow = false;
     let lastSent = 0;
     let lastRefocus = 0;
@@ -160,13 +185,23 @@ export default function Scanner() {
     let blurSince = 0;
     let focusSettlesAt = 0;
     let shownAt = 0;
+    let rejected: Damage | null = null;
+    let clearSince = 0;
+    let dimmed = false;
+    let glareSince = 0;
+    let goneSince = 0;
     const bestCanvas = document.createElement("canvas");
-    let best: { score: number; at: number; frameId: number; crop: NonNullable<ReturnType<typeof paddedCapture>> } | null = null;
+    let best: { score: number; at: number; frameId: number; crop: Crop; cells: number[] | null; kind: DocumentKind } | null = null;
+    // Passport zone (or none) seen on each recent frame of the card.
+    let zones: (string | null)[] = [];
+    const recentCanvases = Array.from({ length: RECENT_FRAMES }, () => document.createElement("canvas"));
+    let recent: Recent[] = [];
     const snapshot = document.createElement("canvas");
+    const photo = document.createElement("canvas");
     const planRef: { current: Plan | null } = { current: null };
     const edgeCanvas = document.createElement("canvas");
     const sourceCanvas = document.createElement("canvas");
-    const worker = new Worker(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/detector.worker.js?v=card-region-2`);
+    const worker = new Worker(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/detector.worker.js?v=detail-retry-1`);
 
 
     const measure = () => {
@@ -286,14 +321,27 @@ export default function Scanner() {
       preview.height = bestCanvas.height;
       preview.getContext("2d")?.drawImage(bestCanvas, 0, 0);
       const pixels = context.getImageData(0, 0, bestCanvas.width, bestCanvas.height);
+      const frameId = best.frameId;
+      const extras = (best.cells ? coveringFrames(best.cells, recent.filter(f => f.frameId !== frameId)) : []).map(f => {
+        const image = f.canvas.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, f.canvas.width, f.canvas.height);
+        return { buffer: image.data.buffer, width: image.width, height: image.height, corners: f.crop.corners };
+      });
       busyTimer = window.setTimeout(() => fail("engine"), 5000);
       worker.postMessage({ type: "crop", buffer: pixels.data.buffer,
         width: bestCanvas.width, height: bestCanvas.height, corners,
-        outWidth: size.width, outHeight: size.height }, [pixels.data.buffer]);
-      setFlash(value => value + 1);
-      navigator.vibrate?.(30);
-      const track = stream?.getVideoTracks()[0];
-      if (track) track.enabled = false;
+        outWidth: size.width, outHeight: size.height, margin: CAPTURE_MARGIN, extras, kind: best.kind },
+        [pixels.data.buffer, ...extras.map(e => e.buffer)]);
+    };
+    const photoMissed = () => {
+      mode = "scan";
+      fromPhoto = false;
+      setNotice(PHOTO_MISSED);
+      startLoop();
+    };
+    const showReason = (next: Reason) => {
+      shownAt = performance.now();
+      reasonRef.current = next;
+      setReason(next);
     };
 
     worker.onmessage = (event: MessageEvent) => {
@@ -312,10 +360,16 @@ export default function Scanner() {
         borderScore?: number;
         quad?: Point[] | null;
         aspect?: number | null;
+        glare?: number[] | null;
+        damage?: Damage | null;
+        outline?: boolean;
+        mrz?: string | null;
       };
       if (data.type === "ready") {
         engineReadyNow = true;
         setEngineReady(true);
+        queuedPhoto?.();
+        queuedPhoto = null;
         startLoop();
         return;
       }
@@ -326,6 +380,34 @@ export default function Scanner() {
         return;
       }
       if (data.type === "result" && mode === "capturing" && data.buffer && data.width && data.height) {
+        window.clearTimeout(busyTimer);
+        // Refuse a damaged card, and quietly drop a capture whose outline could not
+        // be found (it is likely cropped); keep scanning, the preview never stopped.
+        if (data.damage || data.outline === false) {
+          mode = "scan";
+          stability = { ...EMPTY_STABILITY };
+          best = null;
+          recent = [];
+          zones = [];
+          // A rejected photo does not hold back the camera; only a card in view does.
+          if (fromPhoto) setNotice(data.damage ? STATUS[data.damage] : PHOTO_MISSED);
+          else if (data.damage && data.damage !== "covered") {
+            rejected = data.damage;
+            clearSince = 0;
+          }
+          showReason(data.damage ?? "align");
+          stableRef.current = 0;
+          setStable(0);
+          fromPhoto = false;
+          startLoop();
+          return;
+        }
+        fromPhoto = false;
+        setNotice(null);
+        setFlash(value => value + 1);
+        navigator.vibrate?.(30);
+        const track = stream?.getVideoTracks()[0];
+        if (track) track.enabled = false;
         const canvas = previewRef.current;
         if (canvas) {
           const pixels = new Uint8ClampedArray(data.buffer);
@@ -334,6 +416,22 @@ export default function Scanner() {
           canvas.getContext("2d")?.putImageData(new ImageData(pixels, data.width, data.height), 0, 0);
         }
         finishPreview();
+        return;
+      }
+      if (data.type === "metrics" && mode === "photo" && data.frameId === pendingFrameId) {
+        window.clearTimeout(busyTimer);
+        // The photo was sent whole, so the quad is relative to the padded photo.
+        const kind: DocumentKind = data.mrz === "TD3" ? "passport" : "card";
+        const corners = data.quad?.map(p => ({ x: p.x * photo.width, y: p.y * photo.height }));
+        const crop = corners && paddedCapture(corners, photo.width, photo.height, KIND_ASPECT[kind]);
+        const ctx = bestCanvas.getContext("2d");
+        if (!crop || !ctx) { photoMissed(); return; }
+        bestCanvas.width = crop.source.width;
+        bestCanvas.height = crop.source.height;
+        ctx.drawImage(photo, crop.source.x, crop.source.y, crop.source.width, crop.source.height, 0, 0, bestCanvas.width, bestCanvas.height);
+        best = { score: 0, at: 0, frameId: pendingFrameId, crop, cells: null, kind };
+        fromPhoto = true;
+        capture();
         return;
       }
       if (data.type !== "metrics" || mode !== "scan" || data.sharpness == null || data.frameId !== pendingFrameId) return;
@@ -348,6 +446,7 @@ export default function Scanner() {
         return;
       }
       const nativeCorners = data.quad?.map(p => ({x:p.x*plan.source.width,y:p.y*plan.source.height}));
+      recent = recent.filter(f => sampledAt - f.at <= CANDIDATE_MAX_AGE_MS);
       const decision = evaluateFrame(stability, {
         cardWidth: nativeCorners ? outputSize(nativeCorners).width : undefined,
         sharpness: data.sharpness,
@@ -357,32 +456,76 @@ export default function Scanner() {
         borderScore: data.borderScore ?? 0,
         quad: data.quad ?? null,
         aspect: data.aspect ?? null,
+        glareCovered: glareCovered(data.glare ?? null, recent),
       }, plan.inner, sampledAt);
       const map = coverMap(viewRef.current.w, viewRef.current.h, video.videoWidth, video.videoHeight);
       setDetected(decision.quad?.map(p => ({
         x: ((plan.snapshot.x + plan.source.x + p.x * plan.source.width) * map.scale + map.offsetX) / viewRef.current.w * 100,
         y: ((plan.snapshot.y + plan.source.y + p.y * plan.source.height) * map.scale + map.offsetY) / viewRef.current.h * 100,
       })) ?? null);
+      // Lower exposure while glare persists; restore once the card leaves or the view turns dark.
+      const seen = performance.now();
+      glareSince = decision.reason === "glare" ? glareSince || seen : 0;
+      goneSince = decision.reason === "align" ? goneSince || seen : 0;
+      const cameraTrack = stream?.getVideoTracks()[0];
+      if (cameraTrack && !dimmed && glareSince && seen - glareSince >= GLARE_DIM_MS) {
+        dimmed = true;
+        void dimForGlare(cameraTrack, true);
+      } else if (cameraTrack && dimmed && (decision.reason === "dark" || (goneSince && seen - goneSince >= DAMAGE_CLEAR_MS))) {
+        dimmed = false;
+        void dimForGlare(cameraTrack, false);
+      }
+      if (rejected) {
+        // Keep the damage notice until the card leaves the view; no auto capture.
+        const now = performance.now();
+        if (decision.reason !== "align") clearSince = 0;
+        else if (!clearSince) clearSince = now;
+        if (clearSince && now - clearSince >= DAMAGE_CLEAR_MS) {
+          rejected = null;
+        } else {
+          stability = { ...EMPTY_STABILITY };
+          best = null;
+          stableRef.current = 0;
+          setStable(0);
+          return;
+        }
+      }
       if (decision.state.count === 1 || (decision.reason !== "hold" && !decision.capture)) best = null;
       stability = decision.state;
-      if ((decision.reason === "hold" || decision.capture) && decision.quad) {
+      if (decision.reason === "align" || decision.reason === "move") recent = [];
+      if (decision.reason === "align") zones = [];
+      else if (decision.quad) zones = [...zones, data.mrz ?? null].slice(-KIND_FRAMES);
+      const kind = documentKind(zones);
+      const steady = decision.reason === "hold" || decision.capture;
+      // Glare frames are kept too: a reflection elsewhere on the card fills in this one.
+      if ((steady || decision.reason === "glare") && decision.quad) {
         const corners = decision.quad.map(p => ({ x: plan.source.x + p.x * plan.source.width, y: plan.source.y + p.y * plan.source.height }));
-        const crop = paddedCapture(corners, snapshot.width, snapshot.height);
+        const crop = paddedCapture(corners, snapshot.width, snapshot.height, KIND_ASPECT[kind]);
         if (!crop) {
           best = null;
+          recent = [];
           stability = { ...EMPTY_STABILITY };
           reasonRef.current = "align";
           setReason("align");
           setStable(0);
           return;
         }
-        if (preferCandidate(best, data.sharpness, sampledAt)) {
+        if (data.glare) {
+          const canvas = recentCanvases.find(c => !recent.some(f => f.canvas === c)) ?? recent.shift()!.canvas;
+          canvas.width = crop.source.width;
+          canvas.height = crop.source.height;
+          const ctx = canvas.getContext("2d", { willReadFrequently: true });
+          if (!ctx) { fail("engine"); return; }
+          ctx.drawImage(snapshot, crop.source.x, crop.source.y, crop.source.width, crop.source.height, 0, 0, canvas.width, canvas.height);
+          recent.push({ at: sampledAt, frameId: pendingFrameId, cells: data.glare, crop, canvas });
+        }
+        if (steady && preferCandidate(best, data.sharpness, sampledAt)) {
           bestCanvas.width = crop.source.width;
           bestCanvas.height = crop.source.height;
           const ctx = bestCanvas.getContext("2d");
           if (!ctx) { fail("engine"); return; }
           ctx.drawImage(snapshot, crop.source.x, crop.source.y, crop.source.width, crop.source.height, 0, 0, bestCanvas.width, bestCanvas.height);
-          best = { score: data.sharpness, at: sampledAt, frameId: pendingFrameId, crop };
+          best = { score: data.sharpness, at: sampledAt, frameId: pendingFrameId, crop, cells: data.glare ?? null, kind };
         }
       }
       if (decision.reason !== reasonRef.current && performance.now() - shownAt >= 900) {
@@ -423,6 +566,9 @@ export default function Scanner() {
         mode = "scan";
         stability = { ...EMPTY_STABILITY };
         best = null;
+        recent = [];
+        zones = [];
+        rejected = null;
         blurSince = 0;
         setDistanceHint(false);
         focusSettlesAt = performance.now() + 800;
@@ -438,7 +584,82 @@ export default function Scanner() {
         void video.play().catch(() => undefined);
         startLoop();
       },
+      // Stop the camera before the picker opens: the page is frozen while it is open,
+      // and a frame timer running out meanwhile would report a broken engine.
+      pickPhoto() {
+        if (cancelled || mode !== "scan") return false;
+        mode = "photo";
+        stopLoop();
+        // A camera frame still in the worker is dropped by its frameId.
+        window.clearTimeout(busyTimer);
+        busy = false;
+        setDetected(null);
+        return true;
+      },
+      resume() {
+        if (cancelled || mode !== "photo") return;
+        mode = "scan";
+        startLoop();
+      },
+      async loadPhoto(file: File) {
+        // A tap before the scanner was wired up opens the picker without stopping the camera.
+        if (cancelled || (mode !== "photo" && !controlsRef.current?.pickPhoto())) return;
+        setNotice("사진에서 신분증을 찾고 있습니다");
+        let bitmap: ImageBitmap;
+        try {
+          bitmap = await createImageBitmap(file);
+        } catch {
+          if (!cancelled) photoMissed();
+          return;
+        }
+        if (cancelled) { bitmap.close(); return; }
+        const scale = Math.min(1, PHOTO_MAX / Math.max(bitmap.width, bitmap.height));
+        const w = Math.round(bitmap.width * scale);
+        const h = Math.round(bitmap.height * scale);
+        const pad = Math.round(Math.max(w, h) * PHOTO_PAD);
+        photo.width = w + 2 * pad;
+        photo.height = h + 2 * pad;
+        const ctx = photo.getContext("2d");
+        if (!ctx) { bitmap.close(); fail("engine"); return; }
+        // Draw the bitmap whole: Android Chrome reads a source rect of a rotated (EXIF)
+        // photo in its unrotated size and leaves the rest of the photo blank.
+        ctx.drawImage(bitmap, pad, pad, w, h);
+        bitmap.close();
+        // Stretch the outer pixel rows into the pad, so the pad adds no edge of its own.
+        const cols = [[pad, 1, 0, pad], [pad, w, pad, w], [pad + w - 1, 1, pad + w, pad]];
+        const rows = [[pad, 1, 0, pad], [pad, h, pad, h], [pad + h - 1, 1, pad + h, pad]];
+        for (const [sx, sw, dx, dw] of cols) for (const [sy, sh, dy, dh] of rows) {
+          if (dx !== pad || dy !== pad) ctx.drawImage(photo, sx, sy, sw, sh, dx, dy, dw, dh);
+        }
+        const whole: Rect = { x: 0, y: 0, width: photo.width, height: photo.height };
+        const edge = edgeSize(whole);
+        const qualityScale = Math.min(1, 1280 / whole.width, 960 / whole.height);
+        const quality = { width: Math.round(whole.width * qualityScale), height: Math.round(whole.height * qualityScale) };
+        const edgePixels = drawRegion(photo, edgeCanvas, whole, edge.width, edge.height);
+        const sourcePixels = drawRegion(photo, sourceCanvas, whole, quality.width, quality.height);
+        if (!edgePixels || !sourcePixels) { fail("engine"); return; }
+        const send = () => {
+          pendingFrameId = ++frameId;
+          busyTimer = window.setTimeout(() => fail("engine"), 5000);
+          worker.postMessage(
+            {
+              type: "frame",
+              frameId: pendingFrameId,
+              edge: { buffer: edgePixels.buffer, width: edge.width, height: edge.height },
+              source: { buffer: sourcePixels.buffer, ...quality },
+            },
+            [edgePixels.buffer, sourcePixels.buffer],
+          );
+        };
+        if (engineReadyNow) send();
+        else queuedPhoto = send;
+      },
     };
+
+    // Closing the picker without a photo brings the camera back.
+    const photoInput = photoInputRef.current;
+    const resumeScan = () => controlsRef.current?.resume();
+    photoInput?.addEventListener("cancel", resumeScan);
 
     openCamera()
       .then(async (next) => {
@@ -476,6 +697,7 @@ export default function Scanner() {
       worker.onmessage = null;
       worker.onerror = null;
       worker.terminate();
+      photoInput?.removeEventListener("cancel", resumeScan);
       stream?.getTracks().forEach((track) => track.stop());
       controlsRef.current = null;
     };
@@ -521,10 +743,18 @@ export default function Scanner() {
     );
   }
 
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
   const ready = cameraReady && engineReady;
   const guide = view.w > 0 ? guideRect(view.w, view.h, guideFraction) : null;
   const tone = toneFor(reason, ready);
-  const statusText = !cameraReady
+  const statusText = notice
+    ? notice
+    : !cameraReady
     ? "카메라를 켜고 있습니다"
     : !engineReady
       ? "인식 엔진을 준비하고 있습니다"
@@ -567,6 +797,27 @@ export default function Scanner() {
               ))}
             </div>
           )}
+          {phase === "scan" && (
+            <button type="button" className="photo" onClick={() => {
+              // Open the picker even before the scanner is wired up; loadPhoto catches up.
+              if (controlsRef.current?.pickPhoto() ?? true) photoInputRef.current?.click();
+            }}>
+              사진첩에서 불러오기
+            </button>
+          )}
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              // Clear it so picking the same photo again still fires.
+              event.target.value = "";
+              if (file) controlsRef.current?.loadPhoto(file);
+              else controlsRef.current?.resume();
+            }}
+          />
         </div>
       </div>
 

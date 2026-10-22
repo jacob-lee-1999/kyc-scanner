@@ -3,11 +3,12 @@ import { createRequire } from "node:module";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
-import { LIMITS } from "../lib/decide.ts";
-import { quadMatchesGuide } from "../lib/geometry.ts";
+import { LIMITS } from "../src/lib/decide.ts";
+import { quadMatchesGuide } from "../src/lib/geometry.ts";
 
 const require = createRequire(import.meta.url);
-const { analyzeFrame, warpCard } = require("../public/detector-core.js") as {
+const { analyzeFrame, warpCard, detectQuad } = require("../public/detector-core.js") as {
+  detectQuad: (cv: Cv, image: Image) => { quad: { x: number; y: number }[] } | null;
   analyzeFrame: (
     cv: Cv,
     edge: Image,
@@ -134,7 +135,7 @@ const cvReady: Promise<Cv> = new Promise((resolve, reject) => {
       }
     },
   };
-  require("../public/opencv.js");
+  require("@kyc-scanner/opencv");
 });
 
 test("opencv accepts a sharp card and rejects blur, glare, and an empty frame", async () => {
@@ -236,7 +237,7 @@ test("low contrast text passes while its defocused version fails", async () => {
 });
 
 test("padded perspective warp retains actual background around card corners", async () => {
-  const { paddedCapture } = await import('../lib/capture.ts');
+  const { paddedCapture } = await import('../src/lib/capture.ts');
   const source = image(240, 180, [20, 30, 40]);
   rect(source, 40, 40, 160, 100, [200, 200, 200]);
   const plan = paddedCapture([{x:40,y:40},{x:200,y:40},{x:200,y:140},{x:40,y:140}],240,180)!;
@@ -346,4 +347,87 @@ test('actual worker protocol analyzes the source frame and preserves its frame I
   assert.equal(messages[0].frameId,42);
   assert.ok(messages[0].quad);
   assert.ok(messages[0].sharpness>=LIMITS.sharpMin);
+});
+
+// A floor tile line around the card makes a larger quad than the card, with the
+// same surface on both sides of its lines; the card must outrank it. A dark photo
+// frame inside the card has strong edges too, but must not outrank the outline.
+test("the card outranks a larger floor tile around it and print inside it", async () => {
+  const cv = await cvReady;
+  const card = { x0: 120, y0: 115, x1: 360, y1: 266 };
+  for (const withTile of [true, false]) {
+    const scene = image(480, 380, [120, 120, 120]);
+    if (withTile) {
+      for (const [x, y, w, h] of [[38, 28, 404, 4], [38, 348, 404, 4], [38, 28, 4, 324], [438, 28, 4, 324]]) rect(scene, x, y, w, h, [70, 70, 70]);
+    }
+    rect(scene, card.x0, card.y0, card.x1 - card.x0, card.y1 - card.y0, [205, 205, 200]);
+    rect(scene, 135, 135, 70, 90, [30, 30, 30]);
+    rect(scene, 140, 140, 60, 80, [150, 140, 130]);
+    const found = detectQuad(cv, scene);
+    assert.ok(found, `withTile ${withTile}`);
+    const corners = found.quad.map((p) => ({ x: p.x * scene.width, y: p.y * scene.height }));
+    const truth = [{ x: card.x0, y: card.y0 }, { x: card.x1, y: card.y0 }, { x: card.x1, y: card.y1 }, { x: card.x0, y: card.y1 }];
+    corners.forEach((p, i) => assert.ok(Math.hypot(p.x - truth[i].x, p.y - truth[i].y) < 5, JSON.stringify({ withTile, corners })));
+  }
+});
+
+test("a dark card on a dark mat keeps its faint outline over bright print near the edge", async () => {
+  const cv = await cvReady;
+  const source = image(1024, 768, [40, 40, 40]);
+  // Grainy mat, as a leather pad looks to the camera.
+  let seed = 7;
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  for (let y = 0; y < 768; y += 2) for (let x = 0; x < 1024; x += 2) {
+    const v = 25 + Math.round(rand() * 35);
+    rect(source, x, y, 2, 2, [v, v, v]);
+  }
+  const card = { x: 250, y: 220, w: 520, h: 328 };
+  rect(source, card.x - 2, card.y - 2, card.w + 4, card.h + 4, [70, 70, 70]);
+  rect(source, card.x, card.y, card.w, card.h, [42, 42, 42]);
+  rect(source, card.x + 20, card.y + 12, card.w - 40, 40, [230, 230, 230]);
+  const metrics = analyzeScanFrame(cv, halfImage(source), source);
+  assert.ok(metrics.quad);
+  const top = metrics.quad.slice(0, 2).map((p) => p.y * source.height);
+  top.forEach((y) => assert.ok(Math.abs(y - card.y) < 5, JSON.stringify(top)));
+});
+
+// A thin rim on a same-coloured surface disappears in the camera's 480px
+// area downsample. Keep the higher-resolution source from the same snapshot.
+test('detail retry recovers a thin outline lost at preview resolution', async () => {
+  const cv = await cvReady;
+  for (const bg of [40, 120, 200]) {
+    const source = image(960, 720, [bg, bg, bg]);
+    rect(source, 220, 190, 520, 328, [bg + 40, bg + 40, bg + 40]);
+    rect(source, 223, 193, 514, 322, [bg, bg, bg]);
+    const edge = halfImage(source);
+    for (let y = 0; y < edge.height; y++) for (let x = 0; x < edge.width; x++) {
+      for (let c = 0; c < 3; c++) {
+        let sum = 0;
+        for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+          sum += source.data[((y * 2 + dy) * source.width + x * 2 + dx) * 4 + c];
+        }
+        edge.data[(y * edge.width + x) * 4 + c] = sum / 4;
+      }
+    }
+    assert.equal(detectQuad(cv, edge), null);
+    const result = analyzeScanFrame(cv, edge, source);
+    assert.ok(result.quad);
+    const expected = [[220, 190], [740, 190], [740, 518], [220, 518]];
+    result.quad.forEach((p, i) => assert.ok(
+      Math.hypot(p.x * source.width - expected[i][0], p.y * source.height - expected[i][1]) < 4,
+      JSON.stringify(result.quad),
+    ));
+  }
+});
+
+test('detail retry keeps empty and vignetted backgrounds empty', async () => {
+  const cv = await cvReady;
+  for (const vignette of [false, true]) {
+    const source = image(960, 720, [120, 120, 120]);
+    if (vignette) for (let y = 0; y < source.height; y++) for (let x = 0; x < source.width; x++) {
+      const value = 120 - 20 * ((x / 960 - 0.5) ** 2 + (y / 720 - 0.5) ** 2);
+      for (let c = 0; c < 3; c++) source.data[(y * source.width + x) * 4 + c] = value;
+    }
+    assert.equal(analyzeScanFrame(cv, halfImage(source), source).quad, null);
+  }
 });

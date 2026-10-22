@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cameraFailure, canFocusClose, closestFocusDistance, mainLensScore, mainZoom, tuneTrack, refocus } from "../lib/camera.ts";
+import { cameraFailure, canFocusClose, closestFocusDistance, dimForGlare, mainLensScore, mainZoom, tuneTrack, refocus } from "../src/lib/camera.ts";
 
 test("camera errors map to a screen the user can act on", () => {
   assert.equal(cameraFailure(new DOMException("no", "NotAllowedError")), "permission");
@@ -52,4 +52,22 @@ test("unsupported autofocus preserves browser defaults", async () => {
     applyConstraints: async () => { called = true; },
   } as unknown as MediaStreamTrack);
   assert.equal(called, false);
+});
+
+test("glare lowers exposure within the camera's range and restores it", async () => {
+  const calls: unknown[] = [];
+  const track = (range?: { min: number; max: number }) => ({
+    getCapabilities: () => (range ? { exposureCompensation: range } : {}),
+    applyConstraints: async (constraints: unknown) => { calls.push(constraints); },
+  }) as unknown as MediaStreamTrack;
+  assert.equal(await dimForGlare(track({ min: -2, max: 2 }), true), true);
+  assert.equal(await dimForGlare(track({ min: -0.5, max: 2 }), true), true);
+  assert.equal(await dimForGlare(track({ min: -2, max: 2 }), false), true);
+  assert.deepEqual(calls, [
+    { advanced: [{ exposureCompensation: -1 }] },
+    { advanced: [{ exposureCompensation: -0.5 }] },
+    { advanced: [{ exposureCompensation: 0 }] },
+  ]);
+  assert.equal(await dimForGlare(track(), true), false);
+  assert.equal(calls.length, 3);
 });
