@@ -107,8 +107,28 @@ test("a jump resets the steady count", () => {
     },
     inner,
   );
+  // One jump is left out; a second in a row starts over.
   assert.equal(second.capture, false);
-  assert.equal(second.state.count, 0);
+  assert.equal(second.state.skipped, true);
+  assert.equal(second.state.count, 1);
+  const third = evaluateFrame(second.state, { sharpness: 2000, glareRatio: 0, hotspot: false, luma: 160, borderScore: 0, quad: shifted, aspect: 1.58 }, inner);
+  assert.notEqual(third.reason, "hold");
+  assert.equal(third.state.count, 0);
+});
+
+test("one bad frame in a steady run is left out and the run goes on", () => {
+  const first = step(EMPTY_STABILITY, sample(), quad, 0);
+  const missed = step(first.state, sample({ quadMatched: false }), null, 150);
+  assert.equal(missed.reason, "hold");
+  assert.equal(missed.state.skipped, true);
+  const back = step(missed.state, sample(), quad, 300);
+  assert.equal(back.state.count, 2);
+  assert.equal(back.state.skipped, undefined);
+  assert.equal(step(back.state, sample(), quad, LIMITS.stableMs).capture, true);
+  // Two in a row start over.
+  const twice = step(missed.state, sample({ sharpness: 0 }), quad, 300);
+  assert.equal(twice.reason, "blur");
+  assert.equal(twice.state.count, 0);
 });
 
 test("a strong border without corners cannot authorize capture", () => {
