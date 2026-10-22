@@ -50,7 +50,8 @@ export type Sample = {
   glareCovered?: boolean;
 };
 
-export type Stability = { count: number; quad: Point[] | null; since?: number; last?: number };
+// skipped: this frame was bad and left out of a steady run.
+export type Stability = { count: number; quad: Point[] | null; since?: number; last?: number; skipped?: boolean };
 
 export const EMPTY_STABILITY: Stability = { count: 0, quad: null };
 
@@ -71,9 +72,14 @@ export function gate(sample: Sample): Exclude<Reason, "hold" | Damage> {
   return "ok";
 }
 
-export function step(state: Stability, sample: Sample, quad: Point[] | null, now = performance.now()) {
+export function step(state: Stability, sample: Sample, quad: Point[] | null, now = performance.now()): { state: Stability; reason: Exclude<Reason, Damage>; capture: boolean } {
   if (state.last != null && (now - state.last > LIMITS.maxGapMs || now < state.last)) state = EMPTY_STABILITY;
   const reason = gate(sample);
+  // One bad frame in a steady run (an outline that missed or ran onto something
+  // next to the card, a blurred frame) is left out; a second in a row starts over.
+  if (reason !== "ok" && state.count > 0 && !state.skipped) {
+    return { state: { ...state, skipped: true }, reason: "hold" as const, capture: false };
+  }
   if (reason === "move") return { state: { count: 0, quad }, reason, capture: false };
   if (reason !== "ok") return { state: { count: 0, quad: null }, reason, capture: false };
   const count = state.count + 1;

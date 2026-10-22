@@ -431,3 +431,13 @@ test('detail retry keeps empty and vignetted backgrounds empty', async () => {
     assert.equal(analyzeScanFrame(cv, halfImage(source), source).quad, null);
   }
 });
+
+test('a business card is not taken for an ID-1 card', async () => {
+  const cv=await cvReady;
+  const card=analyzeScanFrame(cv,halfImage(offsetCard()),offsetCard());
+  assert.ok(card.quad);
+  // 90×50mm, drawn as wide as the card.
+  const business=image(1024,768,[40,40,40]);
+  rect(business,380,280,520,289,[205,205,200]);
+  assert.equal(analyzeScanFrame(cv,halfImage(business),business).quad,null);
+});

@@ -461,6 +461,40 @@
   // ID-1 cards (ISO/IEC 7810) and ID-3 passport data pages, in millimetres.
   const DOCS = { card: { w: 85.6, h: 53.98 }, passport: { w: 125, h: 88 } };
   const DOC_ASPECTS = Object.values(DOCS).map((doc) => doc.w / doc.h);
+  // Only cards are scanned; a passport page is placed from its zone (findMrz).
+  const CARD_ASPECT = DOCS.card.w / DOCS.card.h;
+
+  // Camera of the frame, in units of image width: principal point and focal length.
+  // Without one (a gallery photo, a test image) the image centre and a main lens
+  // of about 26mm equivalent: the focal length is 1.2 times the short side.
+  function lensOf(image, lens) {
+    const { width: W, height: H } = image;
+    return lens ? { x: lens.x * W, y: lens.y * W, f: lens.f * W } : { x: W / 2, y: H / 2, f: 1.2 * Math.min(W, H) };
+  }
+
+  // Aspect of the rectangle that, seen through the lens, makes this quad
+  // (Zhang & He 2007, "Whiteboard scanning and image enhancement"). A quad that
+  // ran onto something next to the card has no rectangle of card proportions.
+  function trueAspect(quad, lens) {
+    const [m1, m2, m4, m3] = quad.map((p) => [p.x - lens.x, p.y - lens.y, 1]);
+    const crossOf = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const k2 = dot(crossOf(m1, m4), m3) / dot(crossOf(m2, m4), m3);
+    const k3 = dot(crossOf(m1, m4), m2) / dot(crossOf(m3, m4), m2);
+    const n2 = m2.map((v, i) => k2 * v - m1[i]);
+    const n3 = m3.map((v, i) => k3 * v - m1[i]);
+    const length = (n) => Math.sqrt((n[0] ** 2 + n[1] ** 2) / lens.f ** 2 + n[2] ** 2);
+    return length(n2) / length(n3);
+  }
+
+  // On MIDV-500/2019 card clips, 0.1 (about 10%) turned away half the quads more
+  // than 4mm off the card and 0.3% of those within 2mm (focal length 1.2 × short side).
+  const TRUE_ASPECT_SPREAD = 0.1;
+
+  function cardShapedInView(quad, lens) {
+    const aspect = trueAspect(quad, lens);
+    return Number.isFinite(aspect) && Math.abs(Math.log(aspect / CARD_ASPECT)) <= TRUE_ASPECT_SPREAD;
+  }
 
   // How well a quad fits a document outline: the colour step from just inside to
   // just outside each side (the weakest side counts, a grid square on a mat has
@@ -512,7 +546,7 @@
 
   const WEAK_SCORE = 10;
 
-  function findQuad(cv, gray, src) {
+  function findQuad(cv, gray, src, lens) {
     const blur = new cv.Mat();
     const thin = new cv.Mat();
     const edges = new cv.Mat();
@@ -535,7 +569,7 @@
       if (!pts) return;
       const ordered = orderPoints(pts);
       const aspect = quadAspect(ordered);
-      if (aspect == null || aspect < 0.9 || aspect > 2.7) return;
+      if (aspect == null || aspect < 0.9 || aspect > 2.7 || !cardShapedInView(ordered, lens)) return;
       if (guessed && (!cardShaped(ordered, aspect) || ordered.some((p) => p.x < -0.02 * gray.cols || p.y < -0.02 * gray.rows || p.x > 1.02 * gray.cols || p.y > 1.02 * gray.rows))) return;
       const score = quadScore(src, ordered, aspect);
       if (!best || score > best.score) {
@@ -579,6 +613,19 @@
     // The slower paths run while nothing fits well: a closed outline of a card
     // scores 30 and up, while a quad around texture or the view scores under 10.
     const weak = () => !best || best.score < WEAK_SCORE;
+    // CLAHE also lifts texture around the card (wood grain) into edges that tie
+    // into its outline; without it the texture stays faint and the outline closes.
+    if (weak()) {
+      const plain = new cv.Mat();
+      const plainEdges = new cv.Mat();
+      cv.GaussianBlur(gray, plain, new cv.Size(5, 5), 0);
+      cv.Canny(plain, plain, 40, 120);
+      cv.dilate(plain, plainEdges, kernel);
+      scan(plainEdges);
+      scan(plain);
+      plain.delete();
+      plainEdges.delete();
+    }
     if (weak()) {
       for (const found of lineQuads(cv, thin, edges)) consider(found.quad, found.area, true);
     }
@@ -670,12 +717,12 @@
     }
   }
 
-  function detectQuad(cv, image) {
+  function detectQuad(cv, image, lens) {
     const src = rgbaMat(cv, image);
     const gray = new cv.Mat();
     try {
       cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-      return findQuad(cv, gray, src);
+      return findQuad(cv, gray, src, lensOf(image, lens));
     } finally {
       gray.delete();
       src.delete();
@@ -939,8 +986,8 @@
 
   // Source and edge show the same search area at different resolutions.
   // Measure quality on the detected card, never on the reference guide/background.
-  function analyzeScanFrame(cv, edge, source) {
-    let found = detectQuad(cv, edge);
+  function analyzeScanFrame(cv, edge, source, lens) {
+    let found = detectQuad(cv, edge, lens);
     // Downsampling can erase thin outlines or join them to background texture.
     // Retry only uncertain detections, using detail already sent to this worker.
     // Bound the extra work and compare both candidates at the same resolution.
@@ -952,7 +999,7 @@
         { x: 0, y: 0 }, { x: source.width - 1, y: 0 },
         { x: source.width - 1, y: source.height - 1 }, { x: 0, y: source.height - 1 },
       ], retryWidth, retryHeight);
-      const retry = detectQuad(cv, detail);
+      const retry = detectQuad(cv, detail, lens);
       // Texture can form a contour around the entire image. It cannot be a
       // complete document and must not displace an existing card candidate.
       if (retry && retry.quad.every(p => p.x > 0.01 && p.y > 0.01 && p.x < 0.99 && p.y < 0.99)) {

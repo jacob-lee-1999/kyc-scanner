@@ -7,7 +7,7 @@ self.Module = {
   },
 };
 
-importScripts("./detector-core.js?v=detail-retry-1", "./opencv.js");
+importScripts("./detector-core.js?v=card-shape-2", "./opencv.js");
 
 self.onmessage = (event) => {
   const message = event.data;
@@ -31,6 +31,7 @@ self.onmessage = (event) => {
           width: message.source.width,
           height: message.source.height,
         },
+        message.lens,
       );
       self.postMessage({ type: "metrics", frameId: message.frameId, ms: performance.now() - started, ...metrics });
       return;

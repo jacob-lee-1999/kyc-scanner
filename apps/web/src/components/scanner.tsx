@@ -43,6 +43,9 @@ const GLARE_DIM_MS = 600;
 const PHOTO_MAX = 2400;
 // Room around the photo for the capture margin, filled by stretching its edge pixels.
 const PHOTO_PAD = 0.08;
+// Focal length of a phone main lens (about 26mm equivalent) over the short side of
+// its frame; the A53 main lens is 1.25.
+const LENS_FOCAL = 1.2;
 const PHOTO_MISSED = "사진에서 신분증을 찾지 못했습니다. 신분증 전체와 주변이 보이는 사진을 골라 주세요";
 
 type Failure = CameraFailure | "engine";
@@ -57,6 +60,8 @@ type Plan = {
   inner: Rect;
   qualitySize: { width: number; height: number };
   edge: { width: number; height: number };
+  // Principal point and focal length of the camera, in units of source width.
+  lens: { x: number; y: number; f: number };
 };
 const STATUS: Record<Reason, string> = {
   align: "신분증 전체가 보이게 화면 가운데 놓아 주세요",
@@ -123,7 +128,11 @@ function buildPlan(
   const qualityScale = Math.min(1, 1280 / source.width, 960 / source.height);
   return { snapshot, source: local(source), inner, qualitySize: {
     width: Math.round(source.width * qualityScale), height: Math.round(source.height * qualityScale),
-  }, edge: edgeSize(source) };
+  }, edge: edgeSize(source), lens: {
+    x: (video.videoWidth / 2 - source.x) / source.width,
+    y: (video.videoHeight / 2 - source.y) / source.width,
+    f: (LENS_FOCAL * Math.min(video.videoWidth, video.videoHeight)) / source.width,
+  } };
 }
 
 function toneFor(reason: Reason, ready: boolean): "idle" | "warn" | "ready" {
@@ -201,7 +210,7 @@ export default function Scanner() {
     const planRef: { current: Plan | null } = { current: null };
     const edgeCanvas = document.createElement("canvas");
     const sourceCanvas = document.createElement("canvas");
-    const worker = new Worker(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/detector.worker.js?v=detail-retry-1`);
+    const worker = new Worker(`${process.env.NEXT_PUBLIC_BASE_PATH || ""}/detector.worker.js?v=card-shape-2`);
 
 
     const measure = () => {
@@ -299,6 +308,7 @@ export default function Scanner() {
                   height: plan.qualitySize.height,
                 },
                 inner: plan.inner,
+                lens: plan.lens,
               },
               [edge.buffer, sourcePixels.buffer],
             );
@@ -458,6 +468,11 @@ export default function Scanner() {
         aspect: data.aspect ?? null,
         glareCovered: glareCovered(data.glare ?? null, recent),
       }, plan.inner, sampledAt);
+      // A frame left out of a steady run changes nothing on screen or in the run.
+      if (decision.state.skipped) {
+        stability = decision.state;
+        return;
+      }
       const map = coverMap(viewRef.current.w, viewRef.current.h, video.videoWidth, video.videoHeight);
       setDetected(decision.quad?.map(p => ({
         x: ((plan.snapshot.x + plan.source.x + p.x * plan.source.width) * map.scale + map.offsetX) / viewRef.current.w * 100,
@@ -647,6 +662,7 @@ export default function Scanner() {
               frameId: pendingFrameId,
               edge: { buffer: edgePixels.buffer, width: edge.width, height: edge.height },
               source: { buffer: sourcePixels.buffer, ...quality },
+              lens: { x: 0.5, y: photo.height / photo.width / 2, f: (LENS_FOCAL * Math.min(w, h)) / photo.width },
             },
             [edgePixels.buffer, sourcePixels.buffer],
           );
