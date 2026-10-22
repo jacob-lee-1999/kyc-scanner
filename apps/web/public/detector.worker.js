@@ -7,7 +7,7 @@ self.Module = {
   },
 };
 
-importScripts("./detector-core.js?v=card-region-2", "./opencv.js");
+importScripts("./detector-core.js?v=detail-retry-1", "./opencv.js");
 
 self.onmessage = (event) => {
   const message = event.data;
@@ -47,12 +47,27 @@ self.onmessage = (event) => {
         message.outWidth,
         message.outHeight,
       );
+      // Other captures of the same card fill in where this one is washed out.
+      const extras = (message.extras || []).map((extra) =>
+        self.detectorCore.warpCard(
+          cv,
+          { data: new Uint8Array(extra.buffer), width: extra.width, height: extra.height },
+          extra.corners,
+          message.outWidth,
+          message.outHeight,
+        ),
+      );
+      const fused = self.detectorCore.fuseGlare(result, extras);
+      result.data = fused.data;
+      const { damage, outline } = self.detectorCore.inspectDamage(cv, result, message.margin, message.kind);
       self.postMessage(
         {
           type: "result",
           width: result.width,
           height: result.height,
           buffer: result.data.buffer,
+          damage,
+          outline,
         },
         [result.data.buffer],
       );

@@ -32,6 +32,12 @@ test("glare wins over blur once the card is in the frame", () => {
   assert.equal(gate(sample({ glareRatio: LIMITS.glareRatioMax + 0.01, sharpness: 10 })), "glare");
 });
 
+test("glare that other frames can fill in no longer blocks capture", () => {
+  assert.equal(gate(sample({ hotspot: true, glareRatio: 0.05, glareCovered: true })), "ok");
+  assert.equal(gate(sample({ hotspot: true, glareCovered: false })), "glare");
+  assert.equal(gate(sample({ hotspot: true, glareCovered: true, sharpness: 10 })), "blur");
+});
+
 test("dark, bright, and blur are separate", () => {
   assert.equal(gate(sample({ luma: 10 })), "dark");
   assert.equal(gate(sample({ luma: 250 })), "bright");

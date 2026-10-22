@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { paddedCapture, preferCandidate } from '../src/lib/capture.ts';
+import { coveringFrames, glareCovered, paddedCapture, preferCandidate } from '../src/lib/capture.ts';
 
 const card = [{x:100,y:100},{x:900,y:100},{x:900,y:600},{x:100,y:600}];
 test('capture keeps six percent real background on all four sides', () => {
@@ -31,4 +31,17 @@ test('keeps the sharpest recent candidate, replaces expired candidates', () => {
   assert.equal(preferCandidate({score:300,at:100},400,300),true);
   assert.equal(preferCandidate({score:300,at:100},200,1400),true);
   assert.equal(preferCandidate(null,NaN,100),false);
+});
+
+test('glare is covered only when other frames are clean where this one is washed out', () => {
+  const frame = (cells: number[]) => ({ cells });
+  assert.equal(glareCovered([0,1,1,0], [frame([0,0,1,0]), frame([0,1,0,0])]), true);
+  assert.equal(glareCovered([0,1,1,0], [frame([0,1,1,0])]), false);
+  assert.equal(glareCovered([0,1,0,0], []), false);
+  assert.equal(glareCovered(null, [frame([0,0,0,0])]), false);
+  assert.equal(glareCovered([0,0,0,0], []), true);
+  const a = frame([0,0,1,1]), b = frame([0,1,0,0]), c = frame([0,0,0,1]);
+  assert.deepEqual(coveringFrames([0,1,1,0], [a, b, c]), [c]);
+  assert.deepEqual(coveringFrames([0,1,1,1], [a, b, c]), [b, a]);
+  assert.deepEqual(coveringFrames([0,0,0,0], [a]), []);
 });

@@ -63,10 +63,6 @@ input {
   border: 1px dashed rgba(255, 255, 255, 0.35);
 }
 
-.guide .corner {
-  opacity: 0.45;
-}
-
 .detected-card {
   position: absolute;
   inset: 0;
@@ -84,41 +80,43 @@ input {
 
 .corner {
   position: absolute;
-  width: 28px;
-  height: 28px;
-  border: 3px solid currentColor;
+  width: 56px;
+  height: 56px;
+  border: 10px solid currentColor;
+  /* Dark edge keeps the white corners visible over a white table or paper. */
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8));
 }
 
 .tl {
-  top: -2px;
-  left: -2px;
+  top: -7px;
+  left: -7px;
   border-right: 0;
   border-bottom: 0;
-  border-top-left-radius: 12px;
+  border-top-left-radius: 16px;
 }
 
 .tr {
-  top: -2px;
-  right: -2px;
+  top: -7px;
+  right: -7px;
   border-left: 0;
   border-bottom: 0;
-  border-top-right-radius: 12px;
+  border-top-right-radius: 16px;
 }
 
 .bl {
-  bottom: -2px;
-  left: -2px;
+  bottom: -7px;
+  left: -7px;
   border-right: 0;
   border-top: 0;
-  border-bottom-left-radius: 12px;
+  border-bottom-left-radius: 16px;
 }
 
 .br {
-  right: -2px;
-  bottom: -2px;
+  right: -7px;
+  bottom: -7px;
   border-left: 0;
   border-top: 0;
-  border-bottom-right-radius: 12px;
+  border-bottom-right-radius: 16px;
 }
 
 .topbar,
@@ -162,6 +160,10 @@ input {
   text-align: center;
   line-height: 1.45;
   font-size: 22px;
+}
+
+.bottom .photo {
+  background: rgba(0, 0, 0, 0.55);
 }
 
 .bars {

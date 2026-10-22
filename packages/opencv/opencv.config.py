@@ -7,9 +7,15 @@ core = {
 imgproc = {
     '': [
         'approxPolyDP', 'arcLength', 'Canny', 'contourArea', 'cvtColor', 'dilate', 'findContours',
-        'GaussianBlur', 'getPerspectiveTransform', 'getStructuringElement', 'isContourConvex',
-        'Laplacian', 'Sobel', 'threshold', 'warpPerspective',
+        'GaussianBlur', 'getPerspectiveTransform', 'getStructuringElement', 'HoughLinesP', 'isContourConvex',
+        'Laplacian', 'Sobel', 'threshold', 'warpPerspective', 'createCLAHE',
     ],
 }
 
-white_list = makeWhiteList([core, imgproc])
+# createCLAHE becomes the cv.CLAHE constructor, which needs its Algorithm base bound.
+classes = {
+    'Algorithm': [],
+    'CLAHE': ['apply'],
+}
+
+white_list = makeWhiteList([core, imgproc, classes])
