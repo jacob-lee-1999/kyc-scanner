@@ -1,0 +1,31 @@
+{
+  "name": "card",
+  "private": true,
+  "scripts": {
+    "opencv": "cp node_modules/@kyc-scanner/opencv/dist/* public/",
+    "dev": "pnpm opencv && next dev",
+    "dev:phone": "pnpm opencv && next dev --hostname 0.0.0.0 --experimental-https --experimental-https-key certificates/lan-key.pem --experimental-https-cert certificates/lan.pem",
+    "build": "pnpm opencv && next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "node --experimental-strip-types --test tests/*.mts",
+    "eval:digits": "node --experimental-strip-types scripts/digits-eval.mts",
+    "train": "cd training && uv run python synth.py 300000 data/train.npz 0 && uv run python synth.py 30000 data/val.npz 10000000 && uv run python train.py data/train.npz data/val.npz ../public/digit-model.js && uv run python fixtures.py ../tests/fixtures/reader.json"
+  },
+  "dependencies": {
+    "next": "16.4.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "@kyc-scanner/opencv": "workspace:*"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.2",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

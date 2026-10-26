@@ -43,3 +43,5 @@ next-env.d.ts
 # OpenCV is copied from packages/opencv at dev/build time
 apps/web/public/opencv.js
 apps/web/public/opencv_js.wasm
+apps/card/public/opencv.js
+apps/card/public/opencv_js.wasm
